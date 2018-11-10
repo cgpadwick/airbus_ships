@@ -1,12 +1,4 @@
 #!/usr/bin/env python
-# coding: utf-8
-
-# V17: add TTA
-
-# # load packages
-
-# In[1]:
-
 
 import os
 from skimage.data import imread
@@ -24,44 +16,8 @@ input_dir = '/home/cpadwick/data/airbus_ships/'
 train_img_dir = '/home/cpadwick/data/airbus_ships/train/'
 test_img_dir = '/home/cpadwick/data/airbus_ships/test/'
 
-
-# # load train_dataframe
-
-# In[2]:
-
-
 train_df = pd.read_csv(input_dir+'train_ship_segmentations_v2.csv')
-
-
-# In[3]:
-
-
-train_df.head()
-
-
-# In[4]:
-
-
-train_df.shape
-
-
-# # remove bug images
-
-# In[5]:
-
-
 train_df = train_df[train_df['ImageId'] != '6384c3e78.jpg']
-
-
-# In[6]:
-
-
-train_df.shape
-
-
-# # remove 100000 non-ship images
-
-# In[7]:
 
 
 def area_isnull(x):
@@ -70,35 +26,10 @@ def area_isnull(x):
     else:
         return 1
 
-
-# In[8]:
-
-
 train_df['isnan'] = train_df['EncodedPixels'].apply(area_isnull)
-
-
-# In[9]:
-
-
 train_df['isnan'].value_counts()
-
-
-# In[10]:
-
-
 train_df = train_df.sort_values('isnan', ascending=False)
 train_df = train_df.iloc[100000:]
-
-
-# In[11]:
-
-
-train_df['isnan'].value_counts()
-
-
-# # calculate ship area and group by ImageId
-
-# In[12]:
 
 
 def rle_to_mask(rle_list, SHAPE):
@@ -114,9 +45,6 @@ def rle_to_mask(rle_list, SHAPE):
     return mask
 
 
-# In[13]:
-
-
 def calc_area_for_rle(rle_str):
     rle_list = [int(x) if x.isdigit() else x for x in str(rle_str).split()]
     if len(rle_list) == 1:
@@ -125,61 +53,12 @@ def calc_area_for_rle(rle_str):
         area = np.sum(rle_list[1::2])
         return area
 
-
-# In[14]:
-
-
 train_df['area'] = train_df['EncodedPixels'].apply(calc_area_for_rle)
-
-
-# get small area of one ship; If estimated area of the ship is less than 10, it is corrected to 0.
-
-# In[15]:
-
-
 train_df_isship = train_df[train_df['area'] > 0]
-
-
-# In[16]:
-
-
-train_df_isship.shape
-
-
-# In[17]:
-
-
 train_df_smallarea = train_df_isship['area'][train_df_isship['area'] < 10]
-
-
-# In[18]:
-
-
-train_df_smallarea.shape
-
-
-# In[19]:
-
-
-train_df_smallarea.shape[0]/train_df_isship.shape[0]
-
-
-# In[20]:
-
 
 train_gp = train_df.groupby('ImageId').sum()
 train_gp = train_gp.reset_index()
-
-
-# In[21]:
-
-
-train_gp.head()
-
-
-# # set class of ship area
-
-# In[22]:
 
 
 def calc_class(area):
@@ -200,27 +79,10 @@ def calc_class(area):
         return 6
 
 
-# In[23]:
-
-
 train_gp['class'] = train_gp['area'].apply(calc_class)
-
-
-# In[24]:
-
-
 train_gp['class'].value_counts()
 
-
-# # split train-set and validation-set (stratified: area class)
-
-# In[25]:
-
-
 train, val = train_test_split(train_gp, test_size=0.01, stratify=train_gp['class'].tolist())
-
-
-# In[26]:
 
 
 train_isship_list = train['ImageId'][train['isnan']==0].tolist()
@@ -230,18 +92,6 @@ train_nanship_list = random.sample(train_nanship_list, len(train_nanship_list))
 
 val_isship_list = val['ImageId'][val['isnan']==0].tolist()
 val_nanship_list = val['ImageId'][val['isnan']==1].tolist()
-
-
-# In[27]:
-
-
-len(train_isship_list),len(train_nanship_list)
-
-
-# # create data generator
-# Make the ratio of is-ship images and nan-ship images  equal
-
-# In[28]:
 
 
 import threading
@@ -296,24 +146,14 @@ def mygenerator(isship_list, nanship_list, batch_size, cap_num):
         yield img, mask
 
 
-# In[29]:
-
-
 BATCH_SIZE = 16
 CAP_NUM = min(len(train_isship_list),len(train_nanship_list))
 datagen = mygenerator(train_isship_list, train_nanship_list, batch_size=BATCH_SIZE, cap_num=CAP_NUM)
-
 valgen = mygenerator(val_isship_list, val_nanship_list, batch_size=50, cap_num=CAP_NUM)
-
 numvalimages = 50
 val_x, val_y = next(valgen)
 
-
-# # set model
-# U-net with Hypercolumn
-
-# In[30]:
-
+# Model definition
 
 inputs = Input(shape=(768,768,3))
 conv0 = Conv2D(8, 3, activation='relu', padding='same', kernel_initializer='he_normal')(inputs)
@@ -405,13 +245,8 @@ model = Model(inputs=inputs, outputs=conv11)
 #model = multi_gpu_model(model, gpus=4)
 
 
-# In[31]:
-
-
 model.summary()
 
-
-# In[32]:
 
 
 from keras.callbacks import Callback, TensorBoard, ModelCheckpoint, LearningRateScheduler, ReduceLROnPlateau
@@ -451,44 +286,14 @@ NUM_EPOCHS = 100
 
 model.compile(optimizer=Adam(1e-3, decay=0.0), loss=IoU, metrics=['binary_accuracy'])
 
-
-# # training
-
-# In[ ]:
-
-
 history = model.fit_generator(datagen, steps_per_epoch = 250, epochs = NUM_EPOCHS, callbacks=callbacks_list,
                              validation_data=(val_x, val_y), workers=4)
-
 
 model.save('seg_model_hypercolumn_ships_only.h5')
 
 pred_y = model.predict(val_x)
 
-
-# In[ ]:
-
-
 get_ipython().run_line_magic('matplotlib', 'inline')
-for x, y, py in zip(val_x, val_y, pred_y):
-    fig, axes = plt.subplots(1, 3, figsize=(100,100))
-    #pred_mask = pred_mask > opt_threshold
-    #pred_mask = pred_mask.reshape(768,768,1)
-    #gt_mask = gt_mask * 255
-    #gt_mask = gt_mask.reshape(768,768)
-    #pred_mask = pred_mask.reshape(768,768)
-    print(py.shape)
-    axes[0].imshow(x)
-    #axes[1].imshow(y)
-    #axes[2].imshow(py)
-    
-
-
-# # calculate F2 score for validation set
-
-# - set  function of caluculating  score
-
-# In[ ]:
 
 
 def calc_IoU(A, B):
@@ -498,9 +303,6 @@ def calc_IoU(A, B):
     return IoU
 
 
-# In[ ]:
-
-
 def calc_IoU_vector(A, B):
     score_vector = []
     IoU = calc_IoU(A, B)
@@ -508,9 +310,6 @@ def calc_IoU_vector(A, B):
         score = int(IoU > threshold)
         score_vector.append(score)
     return score_vector
-
-
-# In[ ]:
 
 
 def calc_IoU_tensor(masks_true, masks_pred):
@@ -526,18 +325,12 @@ def calc_IoU_tensor(masks_true, masks_pred):
     return score_tensor
 
 
-# In[ ]:
-
-
 def calc_F2_per_one_threshold(score_matrix):
     tp = np.sum( score_matrix.sum(axis=1) > 0  )
     fp = np.sum( score_matrix.sum(axis=1) == 0 )
     fn = np.sum( score_matrix.sum(axis=0) == 0 )
     F2 = (5*tp) / ((5*tp) + fp + (4*fn))
     return F2
-
-
-# In[ ]:
 
 
 def calc_score_one_image(mask_true, mask_pred):
@@ -571,9 +364,6 @@ def calc_score_one_image(mask_true, mask_pred):
     return score
 
 
-# In[ ]:
-
-
 def calc_score_all_image(batch_mask_true, batch_mask_pred, threshold=0.5):
     num = batch_mask_true.shape[0]
     tmp = batch_mask_pred > threshold
@@ -585,15 +375,7 @@ def calc_score_all_image(batch_mask_true, batch_mask_pred, threshold=0.5):
     return np.mean(scores)
 
 
-# - set validation data
-
-# In[ ]:
-
-
 val_list = val['ImageId'].tolist()
-
-
-# In[ ]:
 
 
 def create_data(image_list):
@@ -616,56 +398,7 @@ def create_data(image_list):
     return img, mask
 
 
-# - put it together and search optimal threshold
-
-# In[ ]:
-
-
-from tqdm import tqdm
-
-
-# In[ ]:
-
-
-#search threshold
-scores_list = dict()
-threshold_list = [x/100 for x in range(20,80,10)]
-for threshold in threshold_list:
-    scores = []
-    for i in tqdm(range(len(val_list)//2)):
-        temp_list = val_list[i*2:(i+1)*2]
-        val_img, val_mask = create_data(temp_list)
-        pred_mask = model.predict(val_img)
-        F2 = calc_score_all_image(val_mask, pred_mask, threshold=threshold)*2
-        scores.append(F2)
-    val_F2 = np.sum(scores)/(len(val_list)//2 *2)
-    scores_list[threshold] = val_F2
-
-
-# In[ ]:
-
-
-scores_list
-
-
-# In[ ]:
-
-
-opt_threshold = max(scores_list, key=scores_list.get)
-
-
-# # visualize predict images
-# display 5 images
-
-# In[ ]:
-
-
 import matplotlib.pyplot as plt
-get_ipython().run_line_magic('matplotlib', 'inline')
-len(val_list)
-
-
-# In[ ]:
 
 
 # generate validation image predictions
@@ -694,41 +427,25 @@ for i in range(len(val_list)):
     imsave(out_gt_mask, gt_mask)
     out_pred_mask = os.path.join(val_dir, base + '_pred.png')
     imsave(out_pred_mask, pred_mask)
-    
-    
-        
 
 
-# In[ ]:
-
-
-image_list = val_list[20:30]
-fig, axes = plt.subplots(len(image_list), 3, figsize=(100,100))
-fig.subplots_adjust(left=0.075,right=0.95,bottom=0.05,top=0.52,wspace=0.2,hspace=0.10)
-for i in range(len(image_list)):
-    img = imread(train_img_dir + image_list[i])
-    input_img, gt_mask = create_data([image_list[i]])
-    pred_mask = model.predict(input_img)
-    #pred_mask = pred_mask > opt_threshold
-    pred_mask = pred_mask.reshape(768,768,1)
-    gt_mask = gt_mask * 255
-    gt_mask = gt_mask.reshape(768,768)
-    pred_mask = pred_mask.reshape(768,768)
-    axes[i, 0].imshow(img)
-    axes[i, 1].imshow(gt_mask)
-    axes[i, 2].imshow(pred_mask)
-
-
-# # predict test set and submission with Test Time Augmentation
-
-# In[ ]:
-
+# image_list = val_list[20:30]
+# fig, axes = plt.subplots(len(image_list), 3, figsize=(100,100))
+# fig.subplots_adjust(left=0.075,right=0.95,bottom=0.05,top=0.52,wspace=0.2,hspace=0.10)
+# for i in range(len(image_list)):
+#     img = imread(train_img_dir + image_list[i])
+#     input_img, gt_mask = create_data([image_list[i]])
+#     pred_mask = model.predict(input_img)
+#     #pred_mask = pred_mask > opt_threshold
+#     pred_mask = pred_mask.reshape(768,768,1)
+#     gt_mask = gt_mask * 255
+#     gt_mask = gt_mask.reshape(768,768)
+#     pred_mask = pred_mask.reshape(768,768)
+#     axes[i, 0].imshow(img)
+#     axes[i, 1].imshow(gt_mask)
+#     axes[i, 2].imshow(pred_mask)
 
 test_img_names = [x.split('.')[0] for x in os.listdir(test_img_dir)]
-
-
-# In[ ]:
-
 
 def multi_rle_encode(img, **kwargs):
     '''
