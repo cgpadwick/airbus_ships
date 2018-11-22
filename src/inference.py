@@ -48,18 +48,33 @@ def multi_rle_encode(img, **kwargs):
         return [rle_encode(labels==k, **kwargs) for k in np.unique(labels[labels>0])]
 
 
-
 input_dir = '/raid/cgp/data/airbus_ships/'
 train_img_dir = '/raid/cgp/data/airbus_ships/train/'
 test_img_dir = '/raid/cgp/data/airbus_ships/test/'
 
 test_img_names = [x.split('.')[0] for x in os.listdir(test_img_dir)]
+nsamples = 1000
 
 class_model_fname = 'seg_model_ship_classifier_v2.h5'
 seg_model_fname = 'seg_model_hypercolumn_ships_only_ioulloss.h5'
 
-class_model = load_model(class_model_fname)
-seg_model = load_model(seg_model_fname)
+class_model = load_model(class_model_fname, custom_objects={'IoU': IoU})
+seg_model = load_model(seg_model_fname, custom_objects={'IoU': IoU})
+
+res = np.zeros((nsamples, 768, 768, 1))
+for i in tqdm(range(res.shape[0])):
+    test_img = imread(test_img_dir + test_img_names[i] + '.jpg')
+    test_img = test_img.reshape(1, 768, 768, 3) / 255.0
+    res[i, :, :, :] = seg_model.predict(test_img)
+
+
+print('statistics')
+print(res.min())
+print(res.max())
+print(res.mean())
+print(res.std())
+
+thres = res.mean() + res.std()
 
 pred_rows = []
 for name in tqdm(test_img_names):
@@ -70,7 +85,7 @@ for name in tqdm(test_img_names):
         pred_rows += [{'ImageId': name + '.jpg', 'EncodedPixels': None}]
     else:
         pred_mask = seg_model.predict(test_img)
-        pred_mask = pred_mask > 0.3
+        pred_mask = pred_mask > thres
         rles = multi_rle_encode(pred_mask)
         if len(rles) > 0:
             for rle in rles:
