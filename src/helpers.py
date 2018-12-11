@@ -434,6 +434,14 @@ def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir, nu
     plt.suptitle('Foreground PR-Curve')
     myplots.append(wandb.Image(plt, caption='foreground'))
 
+    summary = {'max_prec_fg': np.max(prec_fg),
+               'max_recall_fg': np.max(recall_fg),
+               'max_fscore_fg': np.max(fscore_fg),
+               'max_prec_bg': np.max(prec_bg),
+               'max_recall_bg': np.max(recall_bg),
+               'max_fscore_bg': np.max(fscore_bg)}
+    wandb.log(summary)
+
     wandb.log({'pr_curves': myplots})
 
     with open(os.path.join(val_dir, 'pr_results.json'), 'w') as f:

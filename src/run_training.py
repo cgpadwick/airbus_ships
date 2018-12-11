@@ -9,6 +9,95 @@ import os
 import wandb
 from wandb.keras import WandbCallback
 
+def run_training(model_choice=None,
+                 loss_choice=None,
+                 epochs=None,
+                 lr=None,
+                 batch_size=None,
+                 num_steps=None,
+                 prefix=None,
+                 num_val_images=None,
+                 input_dir=None,
+                 min_delta=None,
+                 use_dropout_choice=None):
+
+    train_img_dir = os.path.join(input_dir, 'train')
+
+    res = helpers.generate_training_and_validation_data(input_dir)
+
+    train_isship_list = res['train_isship_list']
+    train_nanship_list = res['train_nanship_list']
+    val_isship_list = res['val_isship_list']
+    val_nanship_list = res['val_nanship_list']
+    train = res['train']
+    val = res['val']
+    train_df = res['train_df']
+
+    logging.info(train_df.columns)
+
+    use_dropout = False
+    if use_dropout_choice == 'true':
+        logging.info('using dropout in the model definition')
+        use_dropout = True
+
+    model = None
+    if model_choice == 'unet-hypercol':
+        model = seg_models.unet_with_hypercolumn(use_dropout=use_dropout)
+    else:
+        raise Exception('unsupported model type')
+
+    cap_num = min(len(train_isship_list), len(train_nanship_list))
+    datagen = helpers.data_generator(train_isship_list, train_img_dir=train_img_dir,
+                                     train_df=train_df, batch_size=batch_size,
+                                     cap_num=cap_num)
+    logging.info('loading validation images')
+    valgen = helpers.data_generator(val_isship_list, batch_size=50, cap_num=cap_num,
+                                    train_img_dir=train_img_dir, train_df=train_df)
+    val_x, val_y = next(valgen)
+
+    loss = None
+    metrics = ['binary_accuracy']
+    if loss_choice == 'dice':
+        loss = helpers.dice_loss
+        metrics.append(helpers.dice_loss)
+    elif loss_choice == 'focalloss':
+        loss = helpers.focal_loss
+        metrics.append(helpers.focal_loss)
+    elif loss_choice == 'iou':
+        loss = helpers.iou_measure
+        metrics.append(helpers.iou_measure)
+    elif loss_choice == 'custom':
+        loss = helpers.custom_loss
+        metrics.append(helpers.custom_loss)
+    else:
+        raise Exception('unsupported loss type')
+
+    log_dir = os.path.join('./', prefix)
+    reduceLROnPlat = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
+                                       patience=5,
+                                       verbose=1, mode='auto', cooldown=2,
+                                       min_delta=min_delta, min_lr=1e-7)
+
+    if os.path.exists(log_dir):
+        shutil.rmtree(log_dir)
+
+    tb_callback = TensorBoard(log_dir=log_dir, histogram_freq=0,
+                              write_graph=True, write_images=True)
+
+    csv_logger = CSVLogger(os.path.join(log_dir, 'log.csv'))
+    callback_list = [reduceLROnPlat, tb_callback, csv_logger, WandbCallback(monitor='val_loss')]
+
+    model.compile(optimizer=Adam(lr, decay=0.0), loss=loss, metrics=metrics)
+    history = model.fit_generator(datagen, steps_per_epoch=num_steps, epochs=epochs,
+                                  callbacks=callback_list,
+                                  validation_data=(val_x, val_y), workers=1)
+    model_filename = os.path.join('./', prefix, 'segmentation_model.h5')
+    model.save(model_filename)
+
+    pred_dir = os.path.join('./', prefix, 'val')
+    subset_list = val_isship_list[0:num_val_images]
+    helpers.output_val_predictions(pred_dir, subset_list, model, train_df, train_img_dir)
+
 
 if __name__ == '__main__':
 
@@ -44,83 +133,17 @@ if __name__ == '__main__':
     wandb.config.update(args)
     logging.basicConfig(level=logging.INFO)
 
-    input_dir = args.input_dir
-    train_img_dir = os.path.join(input_dir, 'train')
-    test_img_dir = os.path.join(input_dir, 'test')
+    run_training(model_choice=args.model,
+                 loss_choice=args.loss,
+                 epochs=args.epochs,
+                 lr=args.lr,
+                 batch_size=args.batch_size,
+                 num_steps=args.num_steps,
+                 prefix=args.prefix,
+                 num_val_images=args.num_val_images,
+                 input_dir=args.input_dir,
+                 min_delta=args.min_delta,
+                 use_dropout_choice=args.use_dropout)
 
-    res = helpers.generate_training_and_validation_data(input_dir)
-
-    train_isship_list = res['train_isship_list']
-    train_nanship_list = res['train_nanship_list']
-    val_isship_list = res['val_isship_list']
-    val_nanship_list = res['val_nanship_list']
-    train = res['train']
-    val = res['val']
-    train_df = res['train_df']
-
-    logging.info(train_df.columns)
-
-    use_dropout = False
-    if args.use_dropout == 'true':
-        logging.info('using dropout in the model definition')
-        use_dropout = True
-
-    model = None
-    if args.model == 'unet-hypercol':
-        model = seg_models.unet_with_hypercolumn(use_dropout=use_dropout)
-    else:
-        raise Exception('unsupported model type')
-
-    cap_num = min(len(train_isship_list), len(train_nanship_list))
-    datagen = helpers.data_generator(train_isship_list, train_img_dir=train_img_dir,
-                                  train_df=train_df, batch_size=args.batch_size,
-                                  cap_num=cap_num)
-    logging.info('loading validation images')
-    valgen = helpers.data_generator(val_isship_list, batch_size=50, cap_num=cap_num,
-                                 train_img_dir=train_img_dir, train_df=train_df)
-    val_x, val_y = next(valgen)
-
-    loss = None
-    metrics = ['binary_accuracy']
-    if args.loss == 'dice':
-        loss = helpers.dice_loss
-        metrics.append(helpers.dice_loss)
-    elif args.loss == 'focalloss':
-        loss = helpers.focal_loss
-        metrics.append(helpers.focal_loss)
-    elif args.loss == 'iou':
-        loss = helpers.iou_measure
-        metrics.append(helpers.iou_measure)
-    elif args.loss == 'custom':
-        loss = helpers.custom_loss
-        metrics.append(helpers.custom_loss)
-    else:
-        raise Exception('unsupported loss type')
-
-    log_dir = os.path.join('./', args.prefix)
-    reduceLROnPlat = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
-                                       patience=5,
-                                       verbose=1, mode='auto', cooldown=2,
-                                       min_delta=args.min_delta, min_lr=1e-7)
-
-    if os.path.exists(log_dir):
-        shutil.rmtree(log_dir)
-
-    tb_callback = TensorBoard(log_dir=log_dir, histogram_freq=0,
-                              write_graph=True, write_images=True)
-
-    csv_logger = CSVLogger(os.path.join(log_dir, 'log.csv'))
-    callback_list = [reduceLROnPlat, tb_callback, csv_logger, WandbCallback(monitor='val_loss')]
-
-    model.compile(optimizer=Adam(args.lr, decay=0.0), loss=loss, metrics=metrics)
-    history = model.fit_generator(datagen, steps_per_epoch=args.num_steps, epochs=args.epochs,
-                                  callbacks=callback_list,
-                                  validation_data=(val_x, val_y), workers=1)
-    model_filename = os.path.join('./', args.prefix, 'segmentation_model.h5')
-    model.save(model_filename)
-
-    pred_dir = os.path.join('./', args.prefix, 'val')
-    subset_list = val_isship_list[0:args.num_val_images]
-    helpers.output_val_predictions(pred_dir, subset_list, model, train_df, train_img_dir)
 
 
