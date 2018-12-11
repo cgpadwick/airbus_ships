@@ -2,7 +2,7 @@ from keras.models import *
 from keras.layers import *
 from keras.utils import multi_gpu_model
 
-def unet_with_hypercolumn(num_gpus=None):
+def unet_with_hypercolumn(num_gpus=None, use_dropout=True):
 
     inputs = Input(shape=(768,768,3))
     conv0 = Conv2D(8, 3, activation='relu', padding='same', kernel_initializer='he_normal')(inputs)
@@ -15,28 +15,32 @@ def unet_with_hypercolumn(num_gpus=None):
     conv1 = BatchNormalization()(conv1)
     conv1 = Conv2D(16, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv1)
     conv1 = BatchNormalization()(conv1)
-    conv1 = Dropout(0.4)(conv1)
+    if use_dropout:
+        conv1 = Dropout(0.4)(conv1)
 
     pool1 = MaxPooling2D(pool_size=(2,2))(conv1)
     conv2 = Conv2D(32, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool1)
     conv2 = BatchNormalization()(conv2)
     conv2 = Conv2D(32, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv2)
     conv2 = BatchNormalization()(conv2)
-    conv2 = Dropout(0.4)(conv2)
+    if use_dropout:
+        conv2 = Dropout(0.4)(conv2)
 
     pool2 = MaxPooling2D(pool_size=(2,2))(conv2)
     conv3 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool2)
     conv3 = BatchNormalization()(conv3)
     conv3 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv3)
     conv3 = BatchNormalization()(conv3)
-    conv3 = Dropout(0.4)(conv3)
+    if use_dropout:
+        conv3 = Dropout(0.4)(conv3)
 
     pool3 = MaxPooling2D(pool_size=(2,2))(conv3)
     conv4 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool3)
     conv4 = BatchNormalization()(conv4)
     conv4 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv4)
     conv4 = BatchNormalization()(conv4)
-    conv4 = Dropout(0.4)(conv4)
+    if use_dropout:
+        conv4 = Dropout(0.4)(conv4)
 
     pool4 = MaxPooling2D(pool_size=(2,2))(conv4)
     conv5 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool4)

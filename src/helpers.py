@@ -1,8 +1,10 @@
 import cv2
 import logging
+import matplotlib.pyplot as plt
 import os
 import pandas as pd
 import numpy as np
+import json
 from keras.layers import *
 from keras.optimizers import *
 from keras.callbacks import TensorBoard, ReduceLROnPlateau
@@ -15,6 +17,7 @@ import shutil
 import tensorflow as tf
 import threading
 from tqdm import tqdm
+import wandb
 
 
 def area_isnull(x):
@@ -131,6 +134,13 @@ def dice_coef(y_true, y_pred, smooth=1):
     return K.mean( (2. * intersection + smooth) / (union + smooth), axis=0)
 
 
+def iou_measure(y_true, y_pred):
+    print(y_true.shape)
+    intersection = K.sum(y_true * y_pred, axis=[1,2,3])
+    union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
+    return 1. - K.mean( intersection / (union + 1e-6), axis=0)
+
+
 def dice_loss(y_true, y_pred):
     return 1. - dice_coef(y_true, y_pred)
 
@@ -148,8 +158,8 @@ def focal_loss(y_true, y_pred, gamma=2., alpha=.25):
     y_pred=K.clip(y_pred,eps,1.-eps)
     pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
     pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
-    return -K.sum(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1)) \
-           - K.sum((1-alpha) * K.pow( pt_0, gamma) * K.log(1. - pt_0))
+    return -K.sum(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1 + eps)) \
+           - K.sum((1-alpha) * K.pow( pt_0, gamma) * K.log(1. - pt_0 + eps))
 
 
 def create_data(train_img_dir, image_list, train_df):
@@ -230,7 +240,7 @@ def data_generator(isship_list, batch_size, cap_num, train_img_dir, train_df):
 def get_keras_callbacks(log_dir):
     reduceLROnPlat = ReduceLROnPlateau(monitor='loss', factor=0.7,
                                        patience=10,
-                                       verbose=1, mode='min', epsilon=0.0001, cooldown=2,
+                                       verbose=1, mode='auto', cooldown=2,
                                        min_lr=1e-7)
 
     if os.path.exists(log_dir):
@@ -241,6 +251,64 @@ def get_keras_callbacks(log_dir):
 
     callbacks = [reduceLROnPlat, tb_callback]
     return callbacks
+
+
+def compute(tensor_list):
+
+    y_true = tensor_list[0]
+    y_pred = tensor_list[1]
+    print(y_true.shape)
+    print(y_pred.shape)
+    tt = tf.unstack(y_true)
+    return K.sum(y_true - y_pred)
+    #FP = tf.variable((None, 768, 768, 1), dtype='float32')
+    #FP = K.cast(tf.equal(y_true, 0), dtype='float32') + K.cast(tf.greater(y_pred, 0), dtype='float32')
+    #FP = tf.logical_and(tf.equal(y_true, 0), tf.greater(y_pred, 0))
+    #return K.variable(K.sum(K.cast(FP, dtype='float32')))
+
+
+    #return tf.confusion_matrix(tf.layers.flatten(y_true), tf.layers.flatten(y_pred))
+
+    #y_true_bin = np.where(y_true != 0, 1, 0).flatten()
+    #y_pred_bin = np.where(y_pred > 0, 1, 0).flatten()
+    #conf_matrix = confusion_matrix(y_true_bin, y_pred_bin)
+    #return K.variable(np.sum(conf_matrix) - np.sum(np.trace(conf_matrix)))
+
+
+def custom_loss(y_true, y_pred):
+
+    both_tensors = [y_true, y_pred]
+
+    return K.sum(K.square(y_true - y_pred), axis=[1, 2, 3])
+
+    #tt = K.eval(y_true)
+    #TN = K.placeholder([None, 768, 768, 1])
+    #TN = np.logical_and(K.eval(y_true) == 0, K.eval(y_pred) == 0)
+    #TN = K.sum(K.variable(TN))
+    #return TN
+
+
+
+    # this works
+    #return K.sum(y_true * y_pred, axis=[1,2,3])
+
+    #return K.sum(y_true - y_pred)
+    # This breaks because of arbitrary dimension of y_true
+    #tt = tf.unstack(y_true)
+
+    #res = tf.map_fn(compute, (y_true, y_pred))
+    #return res
+
+    # try:
+    #     y_true_unstack = tf.unstack(y_true)
+    #     y_pred_unstack = tf.unstack(y_pred)
+    #     res = []
+    #     for yt, yp in zip(y_true_unstack, y_pred_unstack):
+    #         cm = compute_confusion_matrix(yt, yp)
+    #         res.append(np.sum(cm) - np.sum(np.trace(cm)))
+    #     return K.variable(res)
+    # except Exception as e:
+    #     return(K.mean(y_true - y_pred))
 
 
 def compute_confusion_matrix(y_true, y_pred, threshold=0.5):
@@ -260,7 +328,7 @@ def compute_score(conf_matrix):
 
 
 # generate validation image predictions
-def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir):
+def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir, num_logged_images=30):
 
     if os.path.exists(val_dir):
         shutil.rmtree(val_dir)
@@ -268,10 +336,13 @@ def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir):
 
     logging.info('outputing validation image predictions')
 
-    #thres_range = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]
-    thres_range = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]
+    thres_range = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]
+    #thres_range = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]
     conf_matrices = [[] for x in range(len(thres_range))]
 
+    images = []
+    gt = []
+    pred = []
     for i in tqdm(range(len(val_list))):
         img_name = os.path.join(train_img_dir, val_list[i])
         img = imread(img_name)
@@ -309,17 +380,64 @@ def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir):
         cv2.imwrite(out_gt_mask, gt_mask)
         out_pred_mask = os.path.join(val_dir, base + '_pred.png')
         cv2.imwrite(out_pred_mask, pred_mask)
+        if len(images) < num_logged_images * 3:
+            images.append(wandb.Image(cv2.resize(orig_img, (256, 256)), caption='Img'))
+            images.append(wandb.Image(cv2.resize(gt_mask, (256, 256), interpolation=cv2.INTER_NEAREST), caption='GT'))
+            images.append(wandb.Image(cv2.resize(pred_mask, (256, 256), interpolation=cv2.INTER_NEAREST), caption='PRED'))
 
+    wandb.log({'examples': images}, commit=True)
+
+    pr_results = {}
     sweep_matrices = [[] for x in range(len(thres_range))]
+    prec_bg = []
+    recall_bg = []
+    fscore_bg = []
+    prec_fg = []
+    recall_fg = []
+    fscore_fg = []
     for idx, thresh in enumerate(thres_range):
         sweep_matrices[idx] = sum(conf_matrices[idx])
         print('threshold level: ' + str(thresh))
         print(sweep_matrices[idx])
         p, r, f1 = compute_score(sweep_matrices[idx])
+        prec_bg.append(p[0])
+        recall_bg.append(r[0])
+        fscore_bg.append(f1[0])
+        prec_fg.append(p[1])
+        recall_fg.append(r[1])
+        fscore_fg.append(f1[1])
         print(p)
         print(r)
         print(f1)
         print('\n\n')
+        pr_results[str(thresh)] = {'conf_matrix': sweep_matrices[idx].tolist(),
+                              'precision': p.tolist(),
+                              'recall': r.tolist(),
+                              'f1': f1.tolist()}
+
+    myplots = []
+    plt.figure(1)
+    plt.plot(thres_range, prec_bg, '-r')
+    plt.plot(thres_range, recall_bg, '-b')
+    plt.plot(thres_range, fscore_bg, '-g')
+    plt.legend(['prec_bg', 'recall_bg', 'fscore_bg'])
+    plt.xlabel('threshold')
+    plt.suptitle('Background PR-Curve')
+    myplots.append(wandb.Image(plt, caption='background'))
+
+    plt.figure(2)
+    plt.plot(thres_range, prec_fg, '-r')
+    plt.plot(thres_range, recall_fg, '-b')
+    plt.plot(thres_range, fscore_fg, '-g')
+    plt.legend(['prec_fg', 'recall_fg', 'fscore_fg'])
+    plt.xlabel('threshold')
+    plt.suptitle('Foreground PR-Curve')
+    myplots.append(wandb.Image(plt, caption='foreground'))
+
+    wandb.log({'pr_curves': myplots})
+
+    with open(os.path.join(val_dir, 'pr_results.json'), 'w') as f:
+        json.dump(pr_results, f, indent=4)
 
 
 
