@@ -1,7 +1,9 @@
-tensorflow-gpu==1.4.0
+tensorflow-gpu==1.11.0
 keras
+opencv-python
 pandas
 scikit-learn
 scikit-image
 jupyter
 tqdm
+wandb
