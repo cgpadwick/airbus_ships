@@ -6,8 +6,10 @@ from keras.callbacks import TensorBoard, ReduceLROnPlateau, CSVLogger
 import seg_models
 import shutil
 import os
+import uuid
 import wandb
 from wandb.keras import WandbCallback
+
 
 def run_training(model_choice=None,
                  loss_choice=None,
@@ -19,7 +21,17 @@ def run_training(model_choice=None,
                  num_val_images=None,
                  input_dir=None,
                  min_delta=None,
-                 use_dropout_choice=None):
+                 use_dropout_choice=None,
+                 gamma=None,
+                 alpha=None,
+                 wandb_logging=None):
+
+    if wandb_logging:
+        wandb.init()
+        wandb.config.update(locals())
+
+    if not prefix:
+        prefix = str(uuid.uuid1())
 
     train_img_dir = os.path.join(input_dir, 'train')
 
@@ -61,8 +73,8 @@ def run_training(model_choice=None,
         loss = helpers.dice_loss
         metrics.append(helpers.dice_loss)
     elif loss_choice == 'focalloss':
-        loss = helpers.focal_loss
-        metrics.append(helpers.focal_loss)
+        loss = helpers.focal_loss(gamma=gamma, alpha=alpha)
+        metrics.append(helpers.focal_loss(gamma=gamma, alpha=alpha))
     elif loss_choice == 'iou':
         loss = helpers.iou_measure
         metrics.append(helpers.iou_measure)
@@ -85,7 +97,10 @@ def run_training(model_choice=None,
                               write_graph=True, write_images=True)
 
     csv_logger = CSVLogger(os.path.join(log_dir, 'log.csv'))
-    callback_list = [reduceLROnPlat, tb_callback, csv_logger, WandbCallback(monitor='val_loss')]
+    callback_list = [reduceLROnPlat, tb_callback, csv_logger]
+    if wandb_logging:
+        callback_list.append(WandbCallback(monitor='val_loss'))
+
 
     model.compile(optimizer=Adam(lr, decay=0.0), loss=loss, metrics=metrics)
     history = model.fit_generator(datagen, steps_per_epoch=num_steps, epochs=epochs,
@@ -96,7 +111,14 @@ def run_training(model_choice=None,
 
     pred_dir = os.path.join('./', prefix, 'val')
     subset_list = val_isship_list[0:num_val_images]
-    helpers.output_val_predictions(pred_dir, subset_list, model, train_df, train_img_dir)
+    summary = helpers.output_val_predictions(pred_dir,
+                                             subset_list,
+                                             model,
+                                             train_df,
+                                             train_img_dir,
+                                             wandb_logging)
+
+    return summary
 
 
 if __name__ == '__main__':
@@ -114,7 +136,7 @@ if __name__ == '__main__':
                         help="batch size")
     parser.add_argument("--num-steps", dest='num_steps', required=False, default=250, type=int,
                         help="number of steps per epoch")
-    parser.add_argument("--prefix", required=True, default=None,
+    parser.add_argument("--prefix", required=False, default=None,
                         help="prefix for location to store results")
     parser.add_argument("--num-val-images", dest='num_val_images', required=False, default=1000,
                         type=int, help="prefix for location to store results")
@@ -128,12 +150,17 @@ if __name__ == '__main__':
                         choices=('true', 'false'),
                         default='true',
                         help='use dropout in the model definition (or not)')
+    parser.add_argument("--gamma", dest='gamma', required=False, default=2.0, type=float,
+                        help="the value of gamma to use for focal loss, only applies to focal loss")
+    parser.add_argument("--alpha", dest='alpha', required=False, default=0.25, type=float,
+                        help="the value of alpha to use for focal loss, only applies to focal loss")
+    parser.add_argument("--wandb-logging", dest='wandb_logging', required=False, default='true',
+                        type=str, choices=('true', 'false'),
+                        help="option to turn on and off wandb logging")
     args = parser.parse_args()
-    wandb.init()
-    wandb.config.update(args)
     logging.basicConfig(level=logging.INFO)
 
-    run_training(model_choice=args.model,
+    summary = run_training(model_choice=args.model,
                  loss_choice=args.loss,
                  epochs=args.epochs,
                  lr=args.lr,
@@ -143,7 +170,10 @@ if __name__ == '__main__':
                  num_val_images=args.num_val_images,
                  input_dir=args.input_dir,
                  min_delta=args.min_delta,
-                 use_dropout_choice=args.use_dropout)
+                 use_dropout_choice=args.use_dropout,
+                 gamma=args.gamma,
+                 alpha=args.alpha,
+                 wandb_logging=True if args.wandb_logging == 'true' else False)
 
 
 

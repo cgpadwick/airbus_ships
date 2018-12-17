@@ -153,13 +153,19 @@ def IoU(y_true, y_pred, eps=1e-6):
     return -K.mean((intersection + eps) / (union + eps), axis=0)
 
 
-def focal_loss(y_true, y_pred, gamma=2., alpha=.25):
-    eps = 1e-12
-    y_pred=K.clip(y_pred,eps,1.-eps)
-    pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
-    pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
-    return -K.sum(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1 + eps)) \
-           - K.sum((1-alpha) * K.pow( pt_0, gamma) * K.log(1. - pt_0 + eps))
+# Can't pass anything but 2 parameters into the keras loss function, so use a closure
+# design to get around this limitation, see
+# https://github.com/keras-team/keras/issues/2121#issuecomment-214551349
+def focal_loss(gamma=2., alpha=.25):
+
+        def fl(y_true, y_pred):
+            eps = 1e-12
+            y_pred=K.clip(y_pred,eps,1.-eps)
+            pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
+            pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
+            return -K.sum(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1 + eps)) \
+                   - K.sum((1-alpha) * K.pow( pt_0, gamma) * K.log(1. - pt_0 + eps))
+        return fl
 
 
 def create_data(train_img_dir, image_list, train_df):
@@ -328,7 +334,8 @@ def compute_score(conf_matrix):
 
 
 # generate validation image predictions
-def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir, num_logged_images=30):
+def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir, num_logged_images=30,
+                           wandb_logging=False):
 
     if os.path.exists(val_dir):
         shutil.rmtree(val_dir)
@@ -385,7 +392,8 @@ def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir, nu
             images.append(wandb.Image(cv2.resize(gt_mask, (256, 256), interpolation=cv2.INTER_NEAREST), caption='GT'))
             images.append(wandb.Image(cv2.resize(pred_mask, (256, 256), interpolation=cv2.INTER_NEAREST), caption='PRED'))
 
-    wandb.log({'examples': images}, commit=True)
+    if wandb_logging:
+        wandb.log({'examples': images}, commit=True)
 
     pr_results = {}
     sweep_matrices = [[] for x in range(len(thres_range))]
@@ -440,12 +448,15 @@ def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir, nu
                'max_prec_bg': np.max(prec_bg),
                'max_recall_bg': np.max(recall_bg),
                'max_fscore_bg': np.max(fscore_bg)}
-    wandb.log(summary)
 
-    wandb.log({'pr_curves': myplots})
+    if wandb_logging:
+        wandb.log(summary)
+        wandb.log({'pr_curves': myplots})
 
     with open(os.path.join(val_dir, 'pr_results.json'), 'w') as f:
         json.dump(pr_results, f, indent=4)
+
+    return summary
 
 
 
