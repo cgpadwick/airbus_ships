@@ -111,12 +111,12 @@ def run_training(model_choice=None,
 
     pred_dir = os.path.join('./', prefix, 'val')
     subset_list = val_isship_list[0:num_val_images]
-    summary = helpers.output_val_predictions(pred_dir,
-                                             subset_list,
-                                             model,
-                                             train_df,
-                                             train_img_dir,
-                                             wandb_logging)
+    summary = helpers.output_val_predictions(val_dir=pred_dir,
+                                             val_list=subset_list,
+                                             model=model,
+                                             train_df=train_df,
+                                             train_img_dir=train_img_dir,
+                                             wandb_logging=wandb_logging)
 
     return summary
 
