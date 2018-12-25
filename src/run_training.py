@@ -134,7 +134,7 @@ if __name__ == '__main__':
                         help="number of epochs to train for")
     parser.add_argument("--lr", required=False, default=0.001, type=float,
                         help="initial learning rate")
-    parser.add_argument("--batch-size", dest='batch_size', required=False, default=16,
+    parser.add_argument("--batch-size", dest='batch_size', required=False, default=16, type=int,
                         help="batch size")
     parser.add_argument("--num-steps", dest='num_steps', required=False, default=250, type=int,
                         help="number of steps per epoch")

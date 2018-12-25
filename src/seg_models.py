@@ -3,6 +3,8 @@ from keras.models import *
 from keras.layers import *
 from keras.utils import multi_gpu_model
 
+import tensorflow as tf
+
 def unet_with_hypercolumn(num_gpus=None, use_dropout=True):
 
     inputs = Input(shape=(768,768,3))
@@ -105,7 +107,7 @@ def residual_block(y, nb_channels, _strides=(1, 1), _project_shortcut=False):
     # down-sampling is performed with a stride of 2
     y = Conv2D(nb_channels, kernel_size=(3, 3), strides=_strides, padding='same')(y)
     y = BatchNormalization()(y)
-    y = LeakyReLU()(y)
+    y = ReLU()(y)
 
     y = Conv2D(nb_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(y)
     y = BatchNormalization()(y)
@@ -120,19 +122,18 @@ def residual_block(y, nb_channels, _strides=(1, 1), _project_shortcut=False):
         shortcut = BatchNormalization()(shortcut)
 
     y = add([shortcut, y])
-    y = LeakyReLU()(y)
+    y = ReLU()(y)
 
     return y
 
 
-def upsample_block(y, nb_channels, encoder_connection=None):
+def upsample_block(y, nb_channels, encoder_connection):
 
     upcv = UpSampling2D(size=(2, 2))(y)
     upcv = Conv2D(nb_channels, 2, activation='relu', padding='same',
                    kernel_initializer='he_normal')(upcv)
     upcv = BatchNormalization()(upcv)
-    if encoder_connection:
-        upcv = concatenate([encoder_connection, upcv], axis=3)
+    upcv = concatenate([encoder_connection, upcv], axis=3)
     return upcv
 
 
@@ -140,35 +141,39 @@ def unet_with_resnet_encoder(num_gpus=None):
 
     inputs = Input(shape=(768, 768, 3))
 
-    conv0 = Conv2D(64, 3, strides=(2, 2), activation=None, padding='same',
+    conv0 = Conv2D(16, 3, strides=(2, 2), activation=None, padding='same',
                    kernel_initializer='he_normal')(inputs)  # 384x384
     conv0 = BatchNormalization()(conv0)
-    conv0 = relu(conv0)
+    conv0 = ReLU()(conv0)
 
     pool1 = MaxPooling2D(pool_size=(2, 2))(conv0) # 192x192
 
     # res 2a and 2b
-    rb2a = residual_block(pool1, 64)
-    rb2b = residual_block(rb2a, 64)
+    rb2a = residual_block(pool1, 16)
+    rb2b = residual_block(rb2a, 16)
 
     # res 3a and 3b
-    rb3a = residual_block(rb2b, 128, _strides=(2, 2)) # 96x96
-    rb3b = residual_block(rb3a, 128)
+    rb3a = residual_block(rb2b, 32, _strides=(2, 2)) # 96x96
+    rb3b = residual_block(rb3a, 32)
 
     # res 4a and 4b
-    rb4a = residual_block(rb3b, 256, _strides=(2, 2))  # 48x48
-    rb4b = residual_block(rb4a, 256)
+    rb4a = residual_block(rb3b, 64, _strides=(2, 2))  # 48x48
+    rb4b = residual_block(rb4a, 64)
 
     # res 5a and 5b
-    rb5a = residual_block(rb4b, 512, _strides=(2, 2))  # 24x24
-    rb5b = residual_block(rb5a, 512)
+    rb5a = residual_block(rb4b, 128, _strides=(2, 2))  # 24x24
+    rb5b = residual_block(rb5a, 128)
 
     # Decoder
-    upcv1 = upsample_block(rb5b, 256, encoder_connection=rb4b)      # 48x48
-    upcv2 = upsample_block(upcv1, 128, encoder_connection=rb3b)     # 96x96
-    upcv3 = upsample_block(upcv2, 64, encoder_connection=rb2b)      # 192x192
-    upcv4 = upsample_block(upcv3, 64, encoder_connection=conv0)     # 384x384
-    upcv5 = upsample_block(upcv4, 32, encoder_connection=None)      # 768x768
+    upcv1 = upsample_block(rb5b, 64, encoder_connection=rb4b)      # 48x48
+    upcv2 = upsample_block(upcv1, 32, encoder_connection=rb3b)     # 96x96
+    upcv3 = upsample_block(upcv2, 16, encoder_connection=rb2b)      # 192x192
+    upcv4 = upsample_block(upcv3, 8, encoder_connection=conv0)     # 384x384
+
+    upcv5 = UpSampling2D(size=(2, 2))(upcv4)                        # 768x768
+    upcv5 = Conv2D(4, 2, activation='relu', padding='same',
+                  kernel_initializer='he_normal')(upcv5)
+    upcv5 = BatchNormalization()(upcv5)
 
     output = Conv2D(1, 1, activation='sigmoid')(upcv5)
 
