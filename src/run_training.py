@@ -55,6 +55,8 @@ def run_training(model_choice=None,
     model = None
     if model_choice == 'unet-hypercol':
         model = seg_models.unet_with_hypercolumn(use_dropout=use_dropout)
+    elif model_choice == 'unet-resnet':
+        model = seg_models.unet_with_resnet_encoder()
     else:
         raise Exception('unsupported model type')
 
@@ -124,7 +126,7 @@ def run_training(model_choice=None,
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=('unet-hypercol', 'unet'), required=False,
+    parser.add_argument("--model", choices=('unet-hypercol', 'unet-resnet'), required=False,
                         default='unet-hypercol', help="type of model to use for training")
     parser.add_argument("--loss", choices=('dice', 'focalloss', 'iou', 'custom'), required=False,
                         default='dice', help="type of loss function to use for training")
