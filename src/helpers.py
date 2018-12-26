@@ -327,9 +327,9 @@ def compute_confusion_matrix(y_true, y_pred, threshold=0.5):
 
 def compute_score(conf_matrix):
 
-    recall = np.diag(conf_matrix) / np.sum(conf_matrix, axis=1)
-    precision = np.diag(conf_matrix) / np.sum(conf_matrix, axis=0)
-    f1  = 2. * precision * recall / (precision + recall)
+    recall = np.diag(conf_matrix) / (np.sum(conf_matrix, axis=1) + np.finfo(np.float).tiny)
+    precision = np.diag(conf_matrix) / (np.sum(conf_matrix, axis=0) + np.finfo(np.float).tiny)
+    f1  = 2. * precision * recall / (precision + recall + np.finfo(np.float).tiny)
     return precision, recall, f1
 
 
