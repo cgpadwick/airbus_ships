@@ -4,11 +4,12 @@ import matplotlib.pyplot as plt
 import os
 import pandas as pd
 import numpy as np
+from imgaug import augmenters as iaa
 import json
 from keras.callbacks import TensorBoard, ReduceLROnPlateau
 from keras.layers import *
 from keras.optimizers import *
-from keras.preprocessing.image import ImageDataGenerator
+#from keras.preprocessing.image import ImageDataGenerator
 import random
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
@@ -244,38 +245,29 @@ def data_generator(isship_list, batch_size, cap_num, train_img_dir, train_df):
         yield img, mask
 
 
-def create_aug_gen(in_gen, seed=9999):
+def create_aug_gen(in_gen):
     """
     Create an image augmentation generator.
     :param in_gen: input generator
-    :param seed: integer
     :return: tuple of augmented images and labels
     """
-    dg_args = dict(featurewise_center = False,
-                   samplewise_center = False,
-                   rotation_range = 15,
-                   width_shift_range = 0.1,
-                   height_shift_range = 0.1,
-                   shear_range = 0.01,
-                   zoom_range = [0.9, 1.25],
-                   horizontal_flip = True,
-                   vertical_flip = True,
-                   fill_mode = 'reflect',
-                   data_format = 'channels_last')
 
-    image_gen = ImageDataGenerator(**dg_args)
-    label_gen = ImageDataGenerator(**dg_args)
+    sometimes = lambda aug: iaa.Sometimes(0.5, aug)
+
+    seq = iaa.Sequential([iaa.Fliplr(0.5),
+                          iaa.Flipud(0.5),
+                          sometimes(iaa.GaussianBlur((0, 3.0))),
+                          sometimes(iaa.Affine(rotate=(-10, 10))),
+                          sometimes(iaa.Affine(translate_px={"x": (-20, 20), "y": (-20, 20)})),
+                          sometimes(iaa.Sharpen(alpha=(0.0, 1.0), lightness=1.0))],
+                         random_order=True)
+
     for in_x, in_y in in_gen:
-        g_x = image_gen.flow(255*in_x,
-                             batch_size = in_x.shape[0],
-                             seed = seed,
-                             shuffle=True)
-        g_y = label_gen.flow(in_y,
-                             batch_size = in_x.shape[0],
-                             seed = seed,
-                             shuffle=True)
+        seq_det = seq.to_deterministic()
+        images_aug = seq_det.augment_images(in_x * 255.0)
+        masks_aug = seq_det.augment_images(in_y)
 
-        yield next(g_x)/255.0, next(g_y)
+        yield images_aug / 255.0, masks_aug
 
 
 def get_keras_callbacks(log_dir):

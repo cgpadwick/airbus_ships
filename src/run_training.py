@@ -64,6 +64,9 @@ def run_training(model_choice=None,
     datagen = helpers.data_generator(train_isship_list, train_img_dir=train_img_dir,
                                      train_df=train_df, batch_size=batch_size,
                                      cap_num=cap_num)
+
+    aug_gen = helpers.create_aug_gen(datagen)
+
     logging.info('loading validation images')
     valgen = helpers.data_generator(val_isship_list, batch_size=50, cap_num=cap_num,
                                     train_img_dir=train_img_dir, train_df=train_df)
@@ -105,7 +108,7 @@ def run_training(model_choice=None,
 
 
     model.compile(optimizer=Adam(lr, decay=0.0), loss=loss, metrics=metrics)
-    history = model.fit_generator(helpers.create_aug_gen(datagen),
+    history = model.fit_generator(aug_gen,
                                   steps_per_epoch=num_steps,
                                   epochs=epochs,
                                   callbacks=callback_list,
