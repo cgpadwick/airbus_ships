@@ -105,7 +105,9 @@ def run_training(model_choice=None,
 
 
     model.compile(optimizer=Adam(lr, decay=0.0), loss=loss, metrics=metrics)
-    history = model.fit_generator(datagen, steps_per_epoch=num_steps, epochs=epochs,
+    history = model.fit_generator(helpers.create_aug_gen(datagen),
+                                  steps_per_epoch=num_steps,
+                                  epochs=epochs,
                                   callbacks=callback_list,
                                   validation_data=(val_x, val_y), workers=1)
     model_filename = os.path.join('./', prefix, 'segmentation_model.h5')

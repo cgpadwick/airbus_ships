@@ -5,9 +5,10 @@ import os
 import pandas as pd
 import numpy as np
 import json
+from keras.callbacks import TensorBoard, ReduceLROnPlateau
 from keras.layers import *
 from keras.optimizers import *
-from keras.callbacks import TensorBoard, ReduceLROnPlateau
+from keras.preprocessing.image import ImageDataGenerator
 import random
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
@@ -241,6 +242,40 @@ def data_generator(isship_list, batch_size, cap_num, train_img_dir, train_df):
         mask = mask / 255.0
         k += batch_size
         yield img, mask
+
+
+def create_aug_gen(in_gen, seed=9999):
+    """
+    Create an image augmentation generator.
+    :param in_gen: input generator
+    :param seed: integer
+    :return: tuple of augmented images and labels
+    """
+    dg_args = dict(featurewise_center = False,
+                   samplewise_center = False,
+                   rotation_range = 15,
+                   width_shift_range = 0.1,
+                   height_shift_range = 0.1,
+                   shear_range = 0.01,
+                   zoom_range = [0.9, 1.25],
+                   horizontal_flip = True,
+                   vertical_flip = True,
+                   fill_mode = 'reflect',
+                   data_format = 'channels_last')
+
+    image_gen = ImageDataGenerator(**dg_args)
+    label_gen = ImageDataGenerator(**dg_args)
+    for in_x, in_y in in_gen:
+        g_x = image_gen.flow(255*in_x,
+                             batch_size = in_x.shape[0],
+                             seed = seed,
+                             shuffle=True)
+        g_y = label_gen.flow(in_y,
+                             batch_size = in_x.shape[0],
+                             seed = seed,
+                             shuffle=True)
+
+        yield next(g_x)/255.0, next(g_y)
 
 
 def get_keras_callbacks(log_dir):
