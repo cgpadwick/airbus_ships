@@ -24,10 +24,11 @@ def run_training(model_choice=None,
                  use_dropout_choice=None,
                  gamma=None,
                  alpha=None,
-                 wandb_logging=None):
+                 wandb_logging=None,
+                 wandb_tag=None):
 
     if wandb_logging:
-        wandb.init()
+        wandb.init(tags=[wandb_tag])
         wandb.config.update(locals())
 
     if not prefix:
@@ -106,7 +107,6 @@ def run_training(model_choice=None,
     if wandb_logging:
         callback_list.append(WandbCallback(monitor='val_loss'))
 
-
     model.compile(optimizer=Adam(lr, decay=0.0), loss=loss, metrics=metrics)
     history = model.fit_generator(aug_gen,
                                   steps_per_epoch=num_steps,
@@ -164,6 +164,8 @@ if __name__ == '__main__':
     parser.add_argument("--wandb-logging", dest='wandb_logging', required=False, default='true',
                         type=str, choices=('true', 'false'),
                         help="option to turn on and off wandb logging")
+    parser.add_argument("--wandb-tag", dest='wandb_tag', required=False, default=None, type=str,
+                        help="tag the run in wandb with a string")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
 
@@ -180,7 +182,8 @@ if __name__ == '__main__':
                  use_dropout_choice=args.use_dropout,
                  gamma=args.gamma,
                  alpha=args.alpha,
-                 wandb_logging=True if args.wandb_logging == 'true' else False)
+                 wandb_logging=True if args.wandb_logging == 'true' else False,
+                 wandb_tag=args.wandb_tag)
 
 
 
