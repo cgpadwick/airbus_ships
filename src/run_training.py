@@ -3,6 +3,7 @@ import logging
 import helpers
 from keras.optimizers import Adam
 from keras.callbacks import TensorBoard, ReduceLROnPlateau, CSVLogger
+import math
 import seg_models
 import shutil
 import os
@@ -52,6 +53,11 @@ def run_training(model_choice=None,
     if use_dropout_choice == 'true':
         logging.info('using dropout in the model definition')
         use_dropout = True
+
+    if not num_steps:
+        num_steps = int(math.ceil(train_df.shape[0] / float(batch_size)))
+
+    logging.info('num steps per epoch: {}'.format(num_steps))
 
     model = None
     if model_choice == 'unet-hypercol':
@@ -141,7 +147,7 @@ if __name__ == '__main__':
                         help="initial learning rate")
     parser.add_argument("--batch-size", dest='batch_size', required=False, default=16, type=int,
                         help="batch size")
-    parser.add_argument("--num-steps", dest='num_steps', required=False, default=250, type=int,
+    parser.add_argument("--num-steps", dest='num_steps', required=False, default=None, type=int,
                         help="number of steps per epoch")
     parser.add_argument("--prefix", required=False, default=None,
                         help="prefix for location to store results")
