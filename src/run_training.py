@@ -149,7 +149,7 @@ if __name__ == '__main__':
                         help="initial learning rate")
     parser.add_argument("--batch-size", dest='batch_size', required=False, default=16, type=int,
                         help="batch size")
-    parser.add_argument("--num-steps", dest='num_steps', required=False, default=None, type=int,
+    parser.add_argument("--num-steps", dest='num_steps', required=False, default=250, type=int,
                         help="number of steps per epoch")
     parser.add_argument("--prefix", required=False, default=None,
                         help="prefix for location to store results")
