@@ -25,6 +25,7 @@ def run_training(model_choice=None,
                  use_dropout_choice=None,
                  gamma=None,
                  alpha=None,
+                 use_augmentation=None,
                  wandb_logging=None,
                  wandb_tag=None):
 
@@ -56,8 +57,7 @@ def run_training(model_choice=None,
 
     if not num_steps:
         num_steps = int(math.ceil(train_df.shape[0] / float(batch_size)))
-
-    logging.info('num steps per epoch: {}'.format(num_steps))
+        logging.info('num steps per epoch computed to be: {}'.format(num_steps))
 
     model = None
     if model_choice == 'unet-hypercol':
@@ -71,8 +71,10 @@ def run_training(model_choice=None,
     datagen = helpers.data_generator(train_isship_list, train_img_dir=train_img_dir,
                                      train_df=train_df, batch_size=batch_size,
                                      cap_num=cap_num)
-
-    aug_gen = helpers.create_aug_gen(datagen)
+    data_generator = datagen
+    if use_augmentation:
+        data_generator = helpers.create_aug_gen(datagen)
+        logging.info('Using augmentation during training')
 
     logging.info('loading validation images')
     valgen = helpers.data_generator(val_isship_list, batch_size=50, cap_num=cap_num,
@@ -114,7 +116,7 @@ def run_training(model_choice=None,
         callback_list.append(WandbCallback(monitor='val_loss'))
 
     model.compile(optimizer=Adam(lr, decay=0.0), loss=loss, metrics=metrics)
-    history = model.fit_generator(aug_gen,
+    history = model.fit_generator(data_generator,
                                   steps_per_epoch=num_steps,
                                   epochs=epochs,
                                   callbacks=callback_list,
@@ -163,6 +165,10 @@ if __name__ == '__main__':
                         choices=('true', 'false'),
                         default='true',
                         help='use dropout in the model definition (or not)')
+    parser.add_argument("--use-augmentation", dest='use_augmentation', required=False,
+                        choices=('true', 'false'),
+                        default='false',
+                        help='use augmentation during training (or not)')
     parser.add_argument("--gamma", dest='gamma', required=False, default=2.0, type=float,
                         help="the value of gamma to use for focal loss, only applies to focal loss")
     parser.add_argument("--alpha", dest='alpha', required=False, default=0.25, type=float,
@@ -188,6 +194,7 @@ if __name__ == '__main__':
                  use_dropout_choice=args.use_dropout,
                  gamma=args.gamma,
                  alpha=args.alpha,
+                 use_augmentation=True if args.use_augmentation == 'true' else False,
                  wandb_logging=True if args.wandb_logging == 'true' else False,
                  wandb_tag=args.wandb_tag)
 
