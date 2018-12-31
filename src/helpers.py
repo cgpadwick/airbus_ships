@@ -16,7 +16,7 @@ import random
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
 from skimage.data import imread
-from skimage.io import imsave
+from skimage.morphology import label
 import shutil
 import tensorflow as tf
 import threading
@@ -32,7 +32,7 @@ def area_isnull(x):
 
 
 def rle_to_mask(rle_list, SHAPE):
-    tmp_flat = np.zeros(SHAPE[0]*SHAPE[1])
+    tmp_flat = np.zeros(SHAPE[0] * SHAPE[1])
     if len(rle_list) == 1:
         mask = np.reshape(tmp_flat, SHAPE).T
     else:
@@ -42,6 +42,40 @@ def rle_to_mask(rle_list, SHAPE):
             tmp_flat[(int(i)-1):(int(i)-1)+int(v)] = 255
         mask = np.reshape(tmp_flat, SHAPE).T
     return mask
+
+
+def multi_rle_encode(img, **kwargs):
+    """
+     Encode connected regions as separated masks
+    :param img: numpy array
+    :param kwargs:
+    :return: rle encoded strings
+    """
+    labels = label(img[0,:,:,:])
+    if img.ndim > 2:
+        return [rle_encode(np.sum(labels==k, axis=2), **kwargs) for k in np.unique(labels[labels>0])]
+    else:
+        return [rle_encode(labels==k, **kwargs) for k in np.unique(labels[labels>0])]
+
+
+def rle_encode(img, min_max_threshold=1e-3, max_mean_threshold=None):
+    """
+    Returns run length as string formatted
+    # ref: https://www.kaggle.com/paulorzp/run-length-encode-and-decode
+    :param img: img: numpy array, 1 - mask, 0 - background
+    :param min_max_threshold:
+    :param max_mean_threshold:
+    :return:
+    """
+    if np.max(img) < min_max_threshold:
+        return '' ## no need to encode if it's all zeros
+    if max_mean_threshold and np.mean(img) > max_mean_threshold:
+        return '' ## ignore overfilled mask
+    pixels = img.T.flatten()
+    pixels = np.concatenate([[0], pixels, [0]])
+    runs = np.where(pixels[1:] != pixels[:-1])[0] + 1
+    runs[1::2] -= runs[::2]
+    return ' '.join(str(x) for x in runs)
 
 
 def calc_area_for_rle(rle_str):
