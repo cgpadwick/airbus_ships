@@ -206,26 +206,6 @@ def focal_loss(gamma=2., alpha=.25):
         return fl
 
 
-def create_data(train_img_dir, image_list, train_df):
-    batch_img = []
-    batch_mask = []
-    for name in image_list:
-        tmp_img = imread(train_img_dir + name)
-        batch_img.append(tmp_img)
-        mask_list = train_df['EncodedPixels'][train_df['ImageId'] == name].tolist()
-        one_mask = np.zeros((768, 768, 1))
-        for item in mask_list:
-            rle_list = str(item).split()
-            tmp_mask = rle_to_mask(rle_list, (768, 768))
-            one_mask[:,:,0] += tmp_mask
-        batch_mask.append(one_mask)
-    img = np.stack(batch_img, axis=0)
-    mask = np.stack(batch_mask, axis=0)
-    img = img / 255.0
-    mask = mask / 255.0
-    return img, mask
-
-
 class threadsafe_iter:
     """Takes an iterator/generator and makes it thread-safe by
     serializing call to the `next` method of given iterator/generator.
@@ -254,16 +234,28 @@ def threadsafe_generator(f):
 
 
 @threadsafe_generator
-def data_generator(isship_list, batch_size, cap_num, train_img_dir, train_df):
+def data_generator(isship_list, nanship_list, batch_size, cap_num, train_img_dir, train_df):
     train_img_names_isship = isship_list[:cap_num]
+    train_img_names_nanship = nanship_list[:cap_num]
     k = 0
     while True:
-        if k + batch_size >= cap_num:
+        if k + batch_size // 2 >= cap_num:
             k = 0
-        batch_img_names_is = train_img_names_isship[k:k + batch_size]
+        batch_img_names_is = train_img_names_isship[k:k + batch_size // 2]
+        batch_img_names_nan = train_img_names_nanship[k:k + batch_size // 2]
         batch_img = []
         batch_mask = []
         for name in batch_img_names_is:
+            tmp_img = imread(os.path.join(train_img_dir, name))
+            batch_img.append(tmp_img)
+            mask_list = train_df['EncodedPixels'][train_df['ImageId'] == name].tolist()
+            one_mask = np.zeros((768, 768, 1))
+            for item in mask_list:
+                rle_list = str(item).split()
+                tmp_mask = rle_to_mask(rle_list, (768, 768))
+                one_mask[:, :, 0] += tmp_mask
+            batch_mask.append(one_mask)
+        for name in batch_img_names_nan:
             tmp_img = imread(os.path.join(train_img_dir, name))
             batch_img.append(tmp_img)
             mask_list = train_df['EncodedPixels'][train_df['ImageId'] == name].tolist()
@@ -277,7 +269,7 @@ def data_generator(isship_list, batch_size, cap_num, train_img_dir, train_df):
         mask = np.stack(batch_mask, axis=0)
         img = img / 255.0
         mask = mask / 255.0
-        k += batch_size
+        k += batch_size // 2
         yield img, mask
 
 

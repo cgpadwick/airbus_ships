@@ -48,7 +48,9 @@ def run_training(model_choice=None,
     val = res['val']
     train_df = res['train_df']
 
-    logging.info(train_df.columns)
+    logging.info('train.shape: {}'.format(train.shape))
+    logging.info('len(train_isship_list): {}'.format(len(train_isship_list)))
+    logging.info('len(train_nanship_list): {}'.format(len(train_nanship_list)))
 
     use_dropout = False
     if use_dropout_choice == 'true':
@@ -68,7 +70,9 @@ def run_training(model_choice=None,
         raise Exception('unsupported model type')
 
     cap_num = min(len(train_isship_list), len(train_nanship_list))
-    datagen = helpers.data_generator(train_isship_list, train_img_dir=train_img_dir,
+    datagen = helpers.data_generator(isship_list=train_isship_list,
+                                     nanship_list=train_nanship_list,
+                                     train_img_dir=train_img_dir,
                                      train_df=train_df, batch_size=batch_size,
                                      cap_num=cap_num)
     data_generator = datagen
