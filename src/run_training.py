@@ -3,6 +3,7 @@ import logging
 import helpers
 from keras.optimizers import Adam
 from keras.callbacks import TensorBoard, ReduceLROnPlateau, CSVLogger
+import math
 import seg_models
 import shutil
 import os
@@ -24,10 +25,12 @@ def run_training(model_choice=None,
                  use_dropout_choice=None,
                  gamma=None,
                  alpha=None,
-                 wandb_logging=None):
+                 use_augmentation=None,
+                 wandb_logging=None,
+                 wandb_tag=None):
 
     if wandb_logging:
-        wandb.init()
+        wandb.init(tags=[wandb_tag])
         wandb.config.update(locals())
 
     if not prefix:
@@ -52,9 +55,15 @@ def run_training(model_choice=None,
         logging.info('using dropout in the model definition')
         use_dropout = True
 
+    if not num_steps:
+        num_steps = int(math.ceil(train_df.shape[0] / float(batch_size)))
+        logging.info('num steps per epoch computed to be: {}'.format(num_steps))
+
     model = None
     if model_choice == 'unet-hypercol':
         model = seg_models.unet_with_hypercolumn(use_dropout=use_dropout)
+    elif model_choice == 'unet-resnet':
+        model = seg_models.unet_with_resnet_encoder()
     else:
         raise Exception('unsupported model type')
 
@@ -62,6 +71,11 @@ def run_training(model_choice=None,
     datagen = helpers.data_generator(train_isship_list, train_img_dir=train_img_dir,
                                      train_df=train_df, batch_size=batch_size,
                                      cap_num=cap_num)
+    data_generator = datagen
+    if use_augmentation:
+        data_generator = helpers.create_aug_gen(datagen)
+        logging.info('Using augmentation during training')
+
     logging.info('loading validation images')
     valgen = helpers.data_generator(val_isship_list, batch_size=50, cap_num=cap_num,
                                     train_img_dir=train_img_dir, train_df=train_df)
@@ -101,9 +115,10 @@ def run_training(model_choice=None,
     if wandb_logging:
         callback_list.append(WandbCallback(monitor='val_loss'))
 
-
     model.compile(optimizer=Adam(lr, decay=0.0), loss=loss, metrics=metrics)
-    history = model.fit_generator(datagen, steps_per_epoch=num_steps, epochs=epochs,
+    history = model.fit_generator(data_generator,
+                                  steps_per_epoch=num_steps,
+                                  epochs=epochs,
                                   callbacks=callback_list,
                                   validation_data=(val_x, val_y), workers=1)
     model_filename = os.path.join('./', prefix, 'segmentation_model.h5')
@@ -124,7 +139,7 @@ def run_training(model_choice=None,
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=('unet-hypercol', 'unet'), required=False,
+    parser.add_argument("--model", choices=('unet-hypercol', 'unet-resnet'), required=False,
                         default='unet-hypercol', help="type of model to use for training")
     parser.add_argument("--loss", choices=('dice', 'focalloss', 'iou', 'custom'), required=False,
                         default='dice', help="type of loss function to use for training")
@@ -132,7 +147,7 @@ if __name__ == '__main__':
                         help="number of epochs to train for")
     parser.add_argument("--lr", required=False, default=0.001, type=float,
                         help="initial learning rate")
-    parser.add_argument("--batch-size", dest='batch_size', required=False, default=16,
+    parser.add_argument("--batch-size", dest='batch_size', required=False, default=16, type=int,
                         help="batch size")
     parser.add_argument("--num-steps", dest='num_steps', required=False, default=250, type=int,
                         help="number of steps per epoch")
@@ -150,6 +165,10 @@ if __name__ == '__main__':
                         choices=('true', 'false'),
                         default='true',
                         help='use dropout in the model definition (or not)')
+    parser.add_argument("--use-augmentation", dest='use_augmentation', required=False,
+                        choices=('true', 'false'),
+                        default='false',
+                        help='use augmentation during training (or not)')
     parser.add_argument("--gamma", dest='gamma', required=False, default=2.0, type=float,
                         help="the value of gamma to use for focal loss, only applies to focal loss")
     parser.add_argument("--alpha", dest='alpha', required=False, default=0.25, type=float,
@@ -157,6 +176,8 @@ if __name__ == '__main__':
     parser.add_argument("--wandb-logging", dest='wandb_logging', required=False, default='true',
                         type=str, choices=('true', 'false'),
                         help="option to turn on and off wandb logging")
+    parser.add_argument("--wandb-tag", dest='wandb_tag', required=False, default=None, type=str,
+                        help="tag the run in wandb with a string")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
 
@@ -173,7 +194,9 @@ if __name__ == '__main__':
                  use_dropout_choice=args.use_dropout,
                  gamma=args.gamma,
                  alpha=args.alpha,
-                 wandb_logging=True if args.wandb_logging == 'true' else False)
+                 use_augmentation=True if args.use_augmentation == 'true' else False,
+                 wandb_logging=True if args.wandb_logging == 'true' else False,
+                 wandb_tag=args.wandb_tag)
 
 
 

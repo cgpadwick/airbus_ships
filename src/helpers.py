@@ -1,18 +1,22 @@
 import cv2
 import logging
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
 import numpy as np
+from imgaug import augmenters as iaa
 import json
+from keras.callbacks import TensorBoard, ReduceLROnPlateau
 from keras.layers import *
 from keras.optimizers import *
-from keras.callbacks import TensorBoard, ReduceLROnPlateau
+#from keras.preprocessing.image import ImageDataGenerator
 import random
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
 from skimage.data import imread
-from skimage.io import imsave
+from skimage.morphology import label
 import shutil
 import tensorflow as tf
 import threading
@@ -28,7 +32,7 @@ def area_isnull(x):
 
 
 def rle_to_mask(rle_list, SHAPE):
-    tmp_flat = np.zeros(SHAPE[0]*SHAPE[1])
+    tmp_flat = np.zeros(SHAPE[0] * SHAPE[1])
     if len(rle_list) == 1:
         mask = np.reshape(tmp_flat, SHAPE).T
     else:
@@ -38,6 +42,40 @@ def rle_to_mask(rle_list, SHAPE):
             tmp_flat[(int(i)-1):(int(i)-1)+int(v)] = 255
         mask = np.reshape(tmp_flat, SHAPE).T
     return mask
+
+
+def multi_rle_encode(img, **kwargs):
+    """
+     Encode connected regions as separated masks
+    :param img: numpy array
+    :param kwargs:
+    :return: rle encoded strings
+    """
+    labels = label(img)
+    if img.ndim > 2:
+        return [rle_encode(np.sum(labels==k, axis=2), **kwargs) for k in np.unique(labels[labels>0])]
+    else:
+        return [rle_encode(labels==k, **kwargs) for k in np.unique(labels[labels>0])]
+
+
+def rle_encode(img, min_max_threshold=1e-3, max_mean_threshold=None):
+    """
+    Returns run length as string formatted
+    # ref: https://www.kaggle.com/paulorzp/run-length-encode-and-decode
+    :param img: img: numpy array, 1 - mask, 0 - background
+    :param min_max_threshold:
+    :param max_mean_threshold:
+    :return:
+    """
+    if np.max(img) < min_max_threshold:
+        return '' ## no need to encode if it's all zeros
+    if max_mean_threshold and np.mean(img) > max_mean_threshold:
+        return '' ## ignore overfilled mask
+    pixels = img.T.flatten()
+    pixels = np.concatenate([[0], pixels, [0]])
+    runs = np.where(pixels[1:] != pixels[:-1])[0] + 1
+    runs[1::2] -= runs[::2]
+    return ' '.join(str(x) for x in runs)
 
 
 def calc_area_for_rle(rle_str):
@@ -243,6 +281,31 @@ def data_generator(isship_list, batch_size, cap_num, train_img_dir, train_df):
         yield img, mask
 
 
+def create_aug_gen(in_gen):
+    """
+    Create an image augmentation generator.
+    :param in_gen: input generator
+    :return: tuple of augmented images and labels
+    """
+
+    sometimes = lambda aug: iaa.Sometimes(0.5, aug)
+
+    seq = iaa.Sequential(iaa.OneOf([iaa.Fliplr(0.5),
+                          iaa.Flipud(0.5),
+                          iaa.GaussianBlur((0, 3.0)),
+                          iaa.Affine(rotate=(-10, 10)),
+                          iaa.Affine(translate_px={"x": (-20, 20), "y": (-20, 20)}),
+                          iaa.Sharpen(alpha=(0.0, 1.0), lightness=1.0)]),
+                         random_order=True)
+
+    for in_x, in_y in in_gen:
+        seq_det = seq.to_deterministic()
+        images_aug = seq_det.augment_images(in_x * 255.0)
+        masks_aug = seq_det.augment_images(in_y)
+
+        yield images_aug / 255.0, masks_aug
+
+
 def get_keras_callbacks(log_dir):
     reduceLROnPlat = ReduceLROnPlateau(monitor='loss', factor=0.7,
                                        patience=10,
@@ -327,9 +390,9 @@ def compute_confusion_matrix(y_true, y_pred, threshold=0.5):
 
 def compute_score(conf_matrix):
 
-    recall = np.diag(conf_matrix) / np.sum(conf_matrix, axis=1)
-    precision = np.diag(conf_matrix) / np.sum(conf_matrix, axis=0)
-    f1  = 2. * precision * recall / (precision + recall)
+    recall = np.diag(conf_matrix) / (np.sum(conf_matrix, axis=1) + np.finfo(np.float).tiny)
+    precision = np.diag(conf_matrix) / (np.sum(conf_matrix, axis=0) + np.finfo(np.float).tiny)
+    f1  = 2. * precision * recall / (precision + recall + np.finfo(np.float).tiny)
     return precision, recall, f1
 
 
