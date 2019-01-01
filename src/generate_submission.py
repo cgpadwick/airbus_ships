@@ -9,6 +9,22 @@ from skimage.data import imread
 from tqdm import tqdm
 
 
+# Need to declare this function here (copied from closure inside helpers.focal_loss)
+# since Keras needs to know the definition to restore the model and we can't
+# access the fl method inside the closure.
+def fl(y_true, y_pred):
+    import tensorflow as tf
+    from keras import backend as K
+    alpha = 0.0
+    gamma = 0.0
+    eps = 1e-12
+    y_pred = K.clip(y_pred, eps, 1. - eps)
+    pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
+    pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
+    return -K.sum(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1 + eps)) \
+           - K.sum((1 - alpha) * K.pow(pt_0, gamma) * K.log(1. - pt_0 + eps))
+
+
 def predict(input_dir, model_filename, output_file, threshold):
     """
     Output predictions on test data, using test time augmentation.
@@ -21,6 +37,7 @@ def predict(input_dir, model_filename, output_file, threshold):
     model = load_model(model_filename, custom_objects={'IoU': helpers.IoU,
                                                        'dice_loss': helpers.dice_loss,
                                                        'focal_loss': helpers.focal_loss,
+                                                       'fl': fl,
                                                        'custom_loss': helpers.custom_loss})
 
     test_img_dir = os.path.join(input_dir, 'test')
@@ -29,7 +46,7 @@ def predict(input_dir, model_filename, output_file, threshold):
 
     pred_rows = []
     for name in tqdm(test_img_names):
-        test_img = imread(test_img_dir + name + '.jpg') / 255.0
+        test_img = imread(os.path.join(test_img_dir, name + '.jpg')) / 255.0
         img_batch[0, :, :, :] = test_img                # original
         img_batch[1, :, :, :] = test_img[:, ::-1, :]    # flip L/R
         img_batch[2, :, :, :] = test_img[::-1, :, :]    # flip U/D
