@@ -5,7 +5,7 @@ import time
 
 def objective_wrapper(params):
     summary = run_training(**params)
-    res = {'loss': -1.0 * summary['max_fscore_bg'],
+    res = {'loss': 1.0 - summary['max_fscore_fg'],
            'status': STATUS_OK,
            'eval_time': time.time()}
     return res
