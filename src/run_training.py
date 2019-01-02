@@ -70,8 +70,8 @@ def run_training(model_choice=None,
         raise Exception('unsupported model type')
 
     cap_num = min(len(train_isship_list), len(train_nanship_list))
-    datagen = helpers.data_generator(isship_list=train_isship_list,
-                                     nanship_list=train_nanship_list,
+    datagen = helpers.data_generator(train_isship_list,
+                                     train_nanship_list,
                                      train_img_dir=train_img_dir,
                                      train_df=train_df, batch_size=batch_size,
                                      cap_num=cap_num)
@@ -81,7 +81,8 @@ def run_training(model_choice=None,
         logging.info('Using augmentation during training')
 
     logging.info('loading validation images')
-    valgen = helpers.data_generator(val_isship_list, batch_size=50, cap_num=cap_num,
+    valgen = helpers.data_generator(val_isship_list, val_nanship_list,
+                                    batch_size=50, cap_num=cap_num,
                                     train_img_dir=train_img_dir, train_df=train_df)
     val_x, val_y = next(valgen)
 
