@@ -2,7 +2,7 @@ import argparse
 import logging
 import helpers
 from keras.optimizers import Adam
-from keras.callbacks import TensorBoard, ReduceLROnPlateau, CSVLogger
+from keras.callbacks import TensorBoard, ReduceLROnPlateau, CSVLogger, ModelCheckpoint
 import math
 import seg_models
 import shutil
@@ -23,6 +23,8 @@ def run_training(model_choice=None,
                  input_dir=None,
                  min_delta=None,
                  use_dropout_choice=None,
+                 lr_schedule=None,
+                 lr_decay=None,
                  gamma=None,
                  alpha=None,
                  use_augmentation=None,
@@ -104,23 +106,28 @@ def run_training(model_choice=None,
         raise Exception('unsupported loss type')
 
     log_dir = os.path.join('./', prefix)
-    reduceLROnPlat = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
-                                       patience=5,
-                                       verbose=1, mode='auto', cooldown=2,
-                                       min_delta=min_delta, min_lr=1e-7)
+    tb_callback = TensorBoard(log_dir=log_dir, histogram_freq=0,
+                              write_graph=True, write_images=True)
+    chkpt_callback = ModelCheckpoint(log_dir)
+    csv_logger = CSVLogger(os.path.join(log_dir, 'log.csv'))
+    callback_list = [tb_callback, csv_logger, chkpt_callback]
+    if wandb_logging:
+        callback_list.append(WandbCallback(monitor='val_loss'))
+
+    decay_rate = 0.0
+    if lr_schedule == 'reduceonplateau':
+        reduceLROnPlat = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
+                                           patience=5,
+                                           verbose=1, mode='auto', cooldown=2,
+                                           min_delta=min_delta, min_lr=1e-7)
+        callback_list.append(reduceLROnPlat)
+    else:
+        decay_rate = lr_decay
 
     if os.path.exists(log_dir):
         shutil.rmtree(log_dir)
 
-    tb_callback = TensorBoard(log_dir=log_dir, histogram_freq=0,
-                              write_graph=True, write_images=True)
-
-    csv_logger = CSVLogger(os.path.join(log_dir, 'log.csv'))
-    callback_list = [reduceLROnPlat, tb_callback, csv_logger]
-    if wandb_logging:
-        callback_list.append(WandbCallback(monitor='val_loss'))
-
-    model.compile(optimizer=Adam(lr, decay=0.0), loss=loss, metrics=metrics)
+    model.compile(optimizer=Adam(lr, decay=decay_rate), loss=loss, metrics=metrics)
     history = model.fit_generator(data_generator,
                                   steps_per_epoch=num_steps,
                                   epochs=epochs,
@@ -154,7 +161,7 @@ if __name__ == '__main__':
                         help="initial learning rate")
     parser.add_argument("--batch-size", dest='batch_size', required=False, default=16, type=int,
                         help="batch size")
-    parser.add_argument("--num-steps", dest='num_steps', required=False, default=250, type=int,
+    parser.add_argument("--num-steps", dest='num_steps', required=False, default=None, type=int,
                         help="number of steps per epoch")
     parser.add_argument("--prefix", required=False, default=None,
                         help="prefix for location to store results")
@@ -174,6 +181,13 @@ if __name__ == '__main__':
                         choices=('true', 'false'),
                         default='false',
                         help='use augmentation during training (or not)')
+    parser.add_argument("--lr-schedule", dest='lr_schedule', required=False,
+                        choices=('reduceonplateau', 'decay'),
+                        default='reduceonplateau',
+                        help='strategy for learning rate decay')
+    parser.add_argument("--lr-decay", dest='lr_decay', required=False,
+                        default=0.1, type=float,
+                        help="learning rate decay for lr-schedule decay")
     parser.add_argument("--gamma", dest='gamma', required=False, default=2.0, type=float,
                         help="the value of gamma to use for focal loss, only applies to focal loss")
     parser.add_argument("--alpha", dest='alpha', required=False, default=0.25, type=float,
@@ -197,6 +211,8 @@ if __name__ == '__main__':
                  input_dir=args.input_dir,
                  min_delta=args.min_delta,
                  use_dropout_choice=args.use_dropout,
+                 lr_schedule=args.lr_schedule,
+                 lr_decay=args.lr_decay,
                  gamma=args.gamma,
                  alpha=args.alpha,
                  use_augmentation=True if args.use_augmentation == 'true' else False,

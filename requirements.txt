@@ -1,4 +1,5 @@
 tensorflow-gpu==1.11.0
+imgaug
 keras
 opencv-python
 pandas
@@ -7,3 +8,4 @@ scikit-image
 jupyter
 tqdm
 wandb
+seaborn
