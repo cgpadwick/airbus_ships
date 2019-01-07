@@ -60,7 +60,7 @@ def run_training(model_choice=None,
         use_dropout = True
 
     if not num_steps:
-        num_steps = int(math.ceil(train_df.shape[0] / float(batch_size)))
+        num_steps = int(math.ceil(train.shape[0] / float(batch_size)))
         logging.info('num steps per epoch computed to be: {}'.format(num_steps))
 
     model = None
@@ -108,7 +108,7 @@ def run_training(model_choice=None,
     log_dir = os.path.join('./', prefix)
     tb_callback = TensorBoard(log_dir=log_dir, histogram_freq=0,
                               write_graph=True, write_images=True)
-    chkpt_callback = ModelCheckpoint(log_dir)
+    chkpt_callback = ModelCheckpoint(os.path.join(log_dir, 'model_checkpoint.h5'))
     csv_logger = CSVLogger(os.path.join(log_dir, 'log.csv'))
     callback_list = [tb_callback, csv_logger, chkpt_callback]
     if wandb_logging:
