@@ -11,11 +11,11 @@ from objective_wrapper import objective_wrapper
 
 
 
-trials = MongoTrials('mongo://localhost:1234/foo_db/jobs', exp_key='exp2')
+trials = MongoTrials('mongo://localhost:1234/foo_db/jobs', exp_key='exp3')
 
-space = {'model_choice': 'unet-hypercol',
+space = {'model_choice': 'unet-resnet',
          'loss_choice': 'focalloss',
-         'epochs': 100,
+         'epochs': 50,
          'lr': 0.001,
          'batch_size': 16,
          'num_steps': 250,
@@ -26,7 +26,9 @@ space = {'model_choice': 'unet-hypercol',
          'use_dropout_choice': False,
          'gamma': hp.uniform('gamma', 0.1, 2.0),
          'alpha': hp.uniform('alpha', 0.05, 0.5),
-         'wandb_logging': True}
+         'use_augmentation': False,
+         'wandb_logging': True,
+         'wandb_tag': '01022019_hyper'}
 
 best = fmin(objective_wrapper,
     space=space,
