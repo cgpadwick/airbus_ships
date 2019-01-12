@@ -174,34 +174,50 @@ def unet_with_resnet_encoder(num_gpus=None):
 
     pool1 = MaxPooling2D(pool_size=(2, 2))(conv0) # 192x192
 
-    # res 2a and 2b
+    # res 2a and 2b, 2c
     rb2a = residual_block(pool1, 16)
     rb2b = residual_block(rb2a, 16)
+    rb2c = residual_block(rb2b, 16)
 
-    # res 3a and 3b
-    rb3a = residual_block(rb2b, 32, _strides=(2, 2)) # 96x96
+    # res 3a and 3b, 3c
+    rb3a = residual_block(rb2c, 32, _strides=(2, 2)) # 96x96
     rb3b = residual_block(rb3a, 32)
+    rb3c = residual_block(rb3b, 32)
 
-    # res 4a and 4b
-    rb4a = residual_block(rb3b, 64, _strides=(2, 2))  # 48x48
+    # res 4a and 4b, 4c
+    rb4a = residual_block(rb3c, 64, _strides=(2, 2))  # 48x48
     rb4b = residual_block(rb4a, 64)
+    rb4c = residual_block(rb4b, 64)
 
-    # res 5a and 5b
-    rb5a = residual_block(rb4b, 128, _strides=(2, 2))  # 24x24
+    # res 5a and 5b, 5c
+    rb5a = residual_block(rb4c, 128, _strides=(2, 2))  # 24x24
     rb5b = residual_block(rb5a, 128)
+    rb5c = residual_block(rb5b, 128)
+
+    # res 6a, 6b, 6c
+    rb6a = residual_block(rb5c, 256, _strides=(2, 2))  # 12x12
+    rb6b = residual_block(rb6a, 256)
+    rb6c = residual_block(rb6b, 256)
+
+    # res 7a, 7b, 7c
+    rb7a = residual_block(rb6c, 512, _strides=(2, 2))  # 6x6
+    rb7b = residual_block(rb7a, 512)
+    rb7c = residual_block(rb7b, 512)
 
     # Decoder
-    upcv1 = upsample_block(rb5b, 64, encoder_connection=rb4b)      # 48x48
-    upcv2 = upsample_block(upcv1, 32, encoder_connection=rb3b)     # 96x96
-    upcv3 = upsample_block(upcv2, 16, encoder_connection=rb2b)      # 192x192
-    upcv4 = upsample_block(upcv3, 8, encoder_connection=conv0)     # 384x384
+    upcv1 = upsample_block(rb7c, 256, encoder_connection=rb6c)  # 12x12
+    upcv2 = upsample_block(upcv1, 128, encoder_connection=rb5c) # 24x24
+    upcv3 = upsample_block(upcv2, 64, encoder_connection=rb4c)  # 48x48
+    upcv4 = upsample_block(upcv3, 32, encoder_connection=rb3c)  # 96x96
+    upcv5 = upsample_block(upcv4, 16, encoder_connection=rb2c)  # 192x192
+    upcv6 = upsample_block(upcv5, 8, encoder_connection=conv0)  # 384x384
 
-    upcv5 = UpSampling2D(size=(2, 2))(upcv4)                        # 768x768
-    upcv5 = Conv2D(4, 2, activation='relu', padding='same',
-                  kernel_initializer='he_normal')(upcv5)
-    upcv5 = BatchNormalization()(upcv5)
+    upcv7 = UpSampling2D(size=(2, 2))(upcv6)                    # 768x768
+    upcv8 = Conv2D(4, 2, activation='relu', padding='same',
+                  kernel_initializer='he_normal')(upcv7)
+    upcv9 = BatchNormalization()(upcv8)
 
-    output = Conv2D(1, 1, activation='sigmoid')(upcv5)
+    output = Conv2D(1, 1, activation='sigmoid')(upcv9)
 
     model = Model(inputs=inputs, outputs=output)
     if num_gpus:
