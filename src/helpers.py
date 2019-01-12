@@ -105,11 +105,15 @@ def calc_class(area):
         return 6
 
 
-def generate_training_and_validation_data(input_dir):
+def generate_training_and_validation_data(input_dir, segmentation=True):
 
     training_plk_file = os.path.join(input_dir, 'training_df.pkl')
     train_df_plk_file = os.path.join(input_dir, 'train_df.pkl')
     val_pkl_file = os.path.join(input_dir, 'val_df.pkl')
+    if not segmentation:
+        training_plk_file = os.path.join(input_dir, 'training_class_df.pkl')
+        train_df_plk_file = os.path.join(input_dir, 'train_class_df.pkl')
+        val_pkl_file = os.path.join(input_dir, 'val_class_df.pkl')
 
     if not os.path.exists(training_plk_file) or \
             not os.path.exists(val_pkl_file) or \
@@ -120,10 +124,11 @@ def generate_training_and_validation_data(input_dir):
         train_df = train_df[train_df['ImageId'] != '6384c3e78.jpg']
 
         train_df['isnan'] = train_df['EncodedPixels'].apply(area_isnull)
-        train_df['isnan'].value_counts()
         train_df = train_df.sort_values('isnan', ascending=False)
-        # Throw away 100K non-ship images
-        train_df = train_df.iloc[100000:]
+        if segmentation:
+            # Throw away 100K non-ship images
+            train_df = train_df.iloc[100000:]
+        logging.info('Value counts for isnan {}'.format(train_df['isnan'].value_counts()))
 
         train_df['area'] = train_df['EncodedPixels'].apply(calc_area_for_rle)
         train_df.to_pickle(train_df_plk_file)
@@ -134,8 +139,12 @@ def generate_training_and_validation_data(input_dir):
         train_gp['class'] = train_gp['area'].apply(calc_class)
         train_gp['class'].value_counts()
 
-        train, val = train_test_split(train_gp, test_size=0.01, stratify=train_gp['class'].tolist())
-
+        if segmentation:
+            train, val = train_test_split(train_gp, test_size=0.01,
+                                          stratify=train_gp['class'].tolist())
+        else:
+            train, val = train_test_split(train_gp, test_size=0.10,
+                                          stratify=train_gp['isnan'].tolist())
         # Save the data frames to pickle files so we can restore them later.
         train.to_pickle(training_plk_file)
         val.to_pickle(val_pkl_file)
@@ -234,7 +243,8 @@ def threadsafe_generator(f):
 
 
 @threadsafe_generator
-def data_generator(isship_list, nanship_list, batch_size, cap_num, train_img_dir, train_df):
+def data_generator(isship_list, nanship_list, batch_size, cap_num, train_img_dir, train_df,
+                   segmentation=True):
     train_img_names_isship = isship_list[:cap_num]
     train_img_names_nanship = nanship_list[:cap_num]
     k = 0
@@ -248,32 +258,39 @@ def data_generator(isship_list, nanship_list, batch_size, cap_num, train_img_dir
         for name in batch_img_names_is:
             tmp_img = imread(os.path.join(train_img_dir, name))
             batch_img.append(tmp_img)
-            mask_list = train_df['EncodedPixels'][train_df['ImageId'] == name].tolist()
-            one_mask = np.zeros((768, 768, 1))
-            for item in mask_list:
-                rle_list = str(item).split()
-                tmp_mask = rle_to_mask(rle_list, (768, 768))
-                one_mask[:, :, 0] += tmp_mask
-            batch_mask.append(one_mask)
+            if segmentation:
+                mask_list = train_df['EncodedPixels'][train_df['ImageId'] == name].tolist()
+                one_mask = np.zeros((768, 768, 1))
+                for item in mask_list:
+                    rle_list = str(item).split()
+                    tmp_mask = rle_to_mask(rle_list, (768, 768))
+                    one_mask[:, :, 0] += tmp_mask
+                batch_mask.append(one_mask)
+            else:
+                batch_mask.append(1)
         for name in batch_img_names_nan:
             tmp_img = imread(os.path.join(train_img_dir, name))
             batch_img.append(tmp_img)
-            mask_list = train_df['EncodedPixels'][train_df['ImageId'] == name].tolist()
-            one_mask = np.zeros((768, 768, 1))
-            for item in mask_list:
-                rle_list = str(item).split()
-                tmp_mask = rle_to_mask(rle_list, (768, 768))
-                one_mask[:, :, 0] += tmp_mask
-            batch_mask.append(one_mask)
+            if segmentation:
+                mask_list = train_df['EncodedPixels'][train_df['ImageId'] == name].tolist()
+                one_mask = np.zeros((768, 768, 1))
+                for item in mask_list:
+                    rle_list = str(item).split()
+                    tmp_mask = rle_to_mask(rle_list, (768, 768))
+                    one_mask[:, :, 0] += tmp_mask
+                batch_mask.append(one_mask)
+            else:
+                batch_mask.append(0)
         img = np.stack(batch_img, axis=0)
         mask = np.stack(batch_mask, axis=0)
         img = img / 255.0
-        mask = mask / 255.0
+        if segmentation:
+            mask = mask / 255.0
         k += batch_size // 2
         yield img, mask
 
 
-def create_aug_gen(in_gen):
+def create_aug_gen(in_gen, segmentation=True):
     """
     Create an image augmentation generator.
     :param in_gen: input generator
@@ -293,7 +310,10 @@ def create_aug_gen(in_gen):
     for in_x, in_y in in_gen:
         seq_det = seq.to_deterministic()
         images_aug = seq_det.augment_images(in_x * 255.0)
-        masks_aug = seq_det.augment_images(in_y)
+        if segmentation:
+            masks_aug = seq_det.augment_images(in_y)
+        else:
+            masks_aug = in_y
 
         yield images_aug / 255.0, masks_aug
 
@@ -399,12 +419,9 @@ def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir, nu
     logging.info('outputing validation image predictions')
 
     thres_range = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]
-    #thres_range = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]
     conf_matrices = [[] for x in range(len(thres_range))]
 
     images = []
-    gt = []
-    pred = []
     for i in tqdm(range(len(val_list))):
         img_name = os.path.join(train_img_dir, val_list[i])
         img = imread(img_name)
@@ -516,6 +533,101 @@ def output_val_predictions(val_dir, val_list, model, train_df, train_img_dir, nu
 
     return summary
 
+
+# generate validation image predictions for classification
+def output_val_predictions_for_classification(val_dir, val_list, model, train_df, train_img_dir,
+                                              wandb_logging=False):
+
+    if os.path.exists(val_dir):
+        shutil.rmtree(val_dir)
+    os.makedirs(val_dir)
+
+    logging.info('outputing validation image predictions')
+
+    thres_range = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]
+    conf_matrices = [[] for x in range(len(thres_range))]
+
+    gt_labels = []
+    pred_labels = []
+    for i in tqdm(range(len(val_list))):
+        img_name = os.path.join(train_img_dir, val_list[i])
+        img = imread(img_name)
+        gt_label = train_df['isnan'][train_df['ImageId'] == val_list[i]]
+        gt_labels.append(1. - gt_label)
+        img = img / 255.
+        img = img.reshape(1, 768, 768, 3)
+        pred_mask = model.predict(img)
+        pred_labels.append(pred_mask[0, 0])
+
+    for idx, thresh in enumerate(thres_range):
+        one_img_conf_matrix = compute_confusion_matrix(gt_labels, pred_labels, threshold=thresh)
+        conf_matrices[idx].append(one_img_conf_matrix)
+
+    pr_results = {}
+    sweep_matrices = [[] for x in range(len(thres_range))]
+    prec_bg = []
+    recall_bg = []
+    fscore_bg = []
+    prec_fg = []
+    recall_fg = []
+    fscore_fg = []
+    for idx, thresh in enumerate(thres_range):
+        sweep_matrices[idx] = sum(conf_matrices[idx])
+        print('threshold level: ' + str(thresh))
+        print(sweep_matrices[idx])
+        p, r, f1 = compute_score(sweep_matrices[idx])
+        prec_bg.append(p[0])
+        recall_bg.append(r[0])
+        fscore_bg.append(f1[0])
+        prec_fg.append(p[1])
+        recall_fg.append(r[1])
+        fscore_fg.append(f1[1])
+        print(p)
+        print(r)
+        print(f1)
+        print('\n\n')
+        pr_results[str(thresh)] = {'conf_matrix': sweep_matrices[idx].tolist(),
+                              'precision': p.tolist(),
+                              'recall': r.tolist(),
+                              'f1': f1.tolist()}
+
+    myplots = []
+    plt.figure(1)
+    plt.plot(thres_range, prec_bg, '-r')
+    plt.plot(thres_range, recall_bg, '-b')
+    plt.plot(thres_range, fscore_bg, '-g')
+    plt.legend(['prec_bg', 'recall_bg', 'fscore_bg'])
+    plt.xlabel('threshold')
+    plt.suptitle('Background PR-Curve')
+    myplots.append(wandb.Image(plt, caption='background'))
+
+    plt.figure(2)
+    plt.plot(thres_range, prec_fg, '-r')
+    plt.plot(thres_range, recall_fg, '-b')
+    plt.plot(thres_range, fscore_fg, '-g')
+    plt.legend(['prec_fg', 'recall_fg', 'fscore_fg'])
+    plt.xlabel('threshold')
+    plt.suptitle('Foreground PR-Curve')
+    myplots.append(wandb.Image(plt, caption='foreground'))
+
+    fg_maxidx = np.argmax(fscore_fg)
+    bg_maxidx = np.argmax(fscore_bg)
+
+    summary = {'max_prec_fg': prec_fg[fg_maxidx],
+               'max_recall_fg': recall_fg[fg_maxidx],
+               'max_fscore_fg': fscore_fg[fg_maxidx],
+               'max_prec_bg': prec_bg[bg_maxidx],
+               'max_recall_bg': recall_bg[bg_maxidx],
+               'max_fscore_bg': fscore_bg[bg_maxidx]}
+
+    if wandb_logging:
+        wandb.log(summary)
+        wandb.log({'pr_curves': myplots})
+
+    with open(os.path.join(val_dir, 'pr_results.json'), 'w') as f:
+        json.dump(pr_results, f, indent=4)
+
+    return summary
 
 
 

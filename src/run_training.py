@@ -31,16 +31,17 @@ def run_training(model_choice=None,
                  wandb_logging=None,
                  wandb_tag=None):
 
+    if not prefix:
+        prefix = str(uuid.uuid1())
+
     if wandb_logging:
         wandb.init(tags=[wandb_tag])
         wandb.config.update(locals())
 
-    if not prefix:
-        prefix = str(uuid.uuid1())
-
     train_img_dir = os.path.join(input_dir, 'train')
 
-    res = helpers.generate_training_and_validation_data(input_dir)
+    segmentation = True if model_choice != 'resnet-classifier' else False
+    res = helpers.generate_training_and_validation_data(input_dir, segmentation=segmentation)
 
     train_isship_list = res['train_isship_list']
     train_nanship_list = res['train_nanship_list']
@@ -68,6 +69,8 @@ def run_training(model_choice=None,
         model = seg_models.unet_with_hypercolumn(use_dropout=use_dropout)
     elif model_choice == 'unet-resnet':
         model = seg_models.unet_with_resnet_encoder()
+    elif model_choice == 'resnet-classifier':
+        model = seg_models.resnet_classifier()
     else:
         raise Exception('unsupported model type')
 
@@ -76,18 +79,22 @@ def run_training(model_choice=None,
                                      train_nanship_list,
                                      train_img_dir=train_img_dir,
                                      train_df=train_df, batch_size=batch_size,
-                                     cap_num=cap_num)
+                                     cap_num=cap_num,
+                                     segmentation=segmentation)
     data_generator = datagen
     if use_augmentation:
-        data_generator = helpers.create_aug_gen(datagen)
+        data_generator = helpers.create_aug_gen(datagen, segmentation=segmentation)
         logging.info('Using augmentation during training')
 
     logging.info('loading validation images')
     valgen = helpers.data_generator(val_isship_list, val_nanship_list,
                                     batch_size=50, cap_num=cap_num,
-                                    train_img_dir=train_img_dir, train_df=train_df)
+                                    train_img_dir=train_img_dir, train_df=train_df,
+                                    segmentation=segmentation)
     val_x, val_y = next(valgen)
 
+    if loss_choice != 'binary_crossentropy' and model_choice == 'resnet-classifier':
+        raise Exception('invalid choice of model and loss function')
     loss = None
     metrics = ['binary_accuracy']
     if loss_choice == 'dice':
@@ -102,6 +109,8 @@ def run_training(model_choice=None,
     elif loss_choice == 'custom':
         loss = helpers.custom_loss
         metrics.append(helpers.custom_loss)
+    elif loss_choice == 'binary_crossentropy':
+        loss = loss_choice
     else:
         raise Exception('unsupported loss type')
 
@@ -133,28 +142,41 @@ def run_training(model_choice=None,
                                   epochs=epochs,
                                   callbacks=callback_list,
                                   validation_data=(val_x, val_y), workers=1)
-    model_filename = os.path.join('./', prefix, 'segmentation_model.h5')
+
+    model_name = 'segmentation_model.h5' if segmentation else 'classification_model.h5'
+    model_filename = os.path.join('./', prefix, model_name)
     model.save(model_filename)
 
     pred_dir = os.path.join('./', prefix, 'val')
     subset_list = val_isship_list[0:num_val_images]
-    summary = helpers.output_val_predictions(val_dir=pred_dir,
+    if segmentation:
+        summary = helpers.output_val_predictions(val_dir=pred_dir,
                                              val_list=subset_list,
                                              model=model,
                                              train_df=train_df,
                                              train_img_dir=train_img_dir,
                                              wandb_logging=wandb_logging)
-
+    else:
+        summary = helpers.output_val_predictions_for_classification(val_dir=pred_dir,
+                                             val_list=subset_list,
+                                             model=model,
+                                             train_df=train_df,
+                                             train_img_dir=train_img_dir,
+                                             wandb_logging=wandb_logging)
     return summary
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=('unet-hypercol', 'unet-resnet'), required=False,
-                        default='unet-hypercol', help="type of model to use for training")
-    parser.add_argument("--loss", choices=('dice', 'focalloss', 'iou', 'custom'), required=False,
-                        default='dice', help="type of loss function to use for training")
+    parser.add_argument("--model", choices=('unet-hypercol', 'unet-resnet', 'resnet-classifier'),
+                        required=False, default='unet-hypercol',
+                        help="type of model to use for training")
+    parser.add_argument("--loss",
+                        choices=('dice', 'focalloss', 'iou', 'custom', 'binary_crossentropy'),
+                        required=False,
+                        default='dice',
+                        help="type of loss function to use for training")
     parser.add_argument("--epochs", required=False, default=300, type=int,
                         help="number of epochs to train for")
     parser.add_argument("--lr", required=False, default=0.001, type=float,
