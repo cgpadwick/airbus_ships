@@ -267,7 +267,7 @@ def data_generator(isship_list, nanship_list, batch_size, cap_num, train_img_dir
                     one_mask[:, :, 0] += tmp_mask
                 batch_mask.append(one_mask)
             else:
-                batch_mask.append(1)
+                batch_mask.append(1.)
         for name in batch_img_names_nan:
             tmp_img = imread(os.path.join(train_img_dir, name))
             batch_img.append(tmp_img)
@@ -280,7 +280,7 @@ def data_generator(isship_list, nanship_list, batch_size, cap_num, train_img_dir
                     one_mask[:, :, 0] += tmp_mask
                 batch_mask.append(one_mask)
             else:
-                batch_mask.append(0)
+                batch_mask.append(0.)
         img = np.stack(batch_img, axis=0)
         mask = np.stack(batch_mask, axis=0)
         img = img / 255.0
@@ -552,15 +552,26 @@ def output_val_predictions_for_classification(val_dir, val_list, model, train_df
     for i in tqdm(range(len(val_list))):
         img_name = os.path.join(train_img_dir, val_list[i])
         img = imread(img_name)
-        gt_label = train_df['isnan'][train_df['ImageId'] == val_list[i]]
-        gt_labels.append(1. - gt_label)
+        gt_label = train_df['area'][train_df['ImageId'] == val_list[i]].tolist()
+        if np.any(gt_label):
+            gt_labels.append(1)
+        else:
+            gt_labels.append(0)
         img = img / 255.
         img = img.reshape(1, 768, 768, 3)
         pred_mask = model.predict(img)
         pred_labels.append(pred_mask[0, 0])
 
+    myplots = []
+    plt.figure(1)
+    plt.hist(pred_labels, range=(0, 1), bins=100)
+    plt.xlabel('threshold')
+    plt.suptitle('Distribution of Predicted Label Confidences')
+    plt.savefig(os.path.join(val_dir, 'pred_labels_histogram.png'))
+    myplots.append(wandb.Image(plt, caption='predicted labels histogram'))
+
     for idx, thresh in enumerate(thres_range):
-        one_img_conf_matrix = compute_confusion_matrix(gt_labels, pred_labels, threshold=thresh)
+        one_img_conf_matrix = compute_confusion_matrix(np.array(gt_labels), np.array(pred_labels), threshold=thresh)
         conf_matrices[idx].append(one_img_conf_matrix)
 
     pr_results = {}
@@ -591,7 +602,6 @@ def output_val_predictions_for_classification(val_dir, val_list, model, train_df
                               'recall': r.tolist(),
                               'f1': f1.tolist()}
 
-    myplots = []
     plt.figure(1)
     plt.plot(thres_range, prec_bg, '-r')
     plt.plot(thres_range, recall_bg, '-b')

@@ -257,7 +257,7 @@ def resnet_classifier(num_gpus=None):
     rb4c = residual_block(rb4b, 64)
 
     # res 5a, 5b, 5c
-    rb5a = residual_block(rb4b, 128, _strides=(2, 2))  # 24x24
+    rb5a = residual_block(rb4c, 128, _strides=(2, 2))  # 24x24
     rb5b = residual_block(rb5a, 128)
     rb5c = residual_block(rb5b, 128)
 
