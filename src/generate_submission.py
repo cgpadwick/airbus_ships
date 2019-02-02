@@ -25,7 +25,7 @@ def fl(y_true, y_pred):
            - K.sum((1 - alpha) * K.pow(pt_0, gamma) * K.log(1. - pt_0 + eps))
 
 
-def predict(input_dir, model_filename, output_file, threshold):
+def predict(input_dir, model_filename, class_model_filename, output_file, threshold):
     """
     Output predictions on test data, using test time augmentation.
     :param input_dir: path to input directory
@@ -40,8 +40,17 @@ def predict(input_dir, model_filename, output_file, threshold):
                                                        'fl': fl,
                                                        'custom_loss': helpers.custom_loss})
 
+    class_model = None
+    if class_model_filename:
+        class_model = load_model(class_model_filename, custom_objects={'IoU': helpers.IoU,
+                                                       'dice_loss': helpers.dice_loss,
+                                                       'focal_loss': helpers.focal_loss,
+                                                       'fl': fl,
+                                                       'custom_loss': helpers.custom_loss})
+
     test_img_dir = os.path.join(input_dir, 'test')
     test_img_names = [x.split('.')[0] for x in os.listdir(test_img_dir)]
+
     img_batch = np.zeros((4, 768, 768, 3))
 
     pred_rows = []
@@ -52,16 +61,31 @@ def predict(input_dir, model_filename, output_file, threshold):
         img_batch[2, :, :, :] = test_img[::-1, :, :]    # flip U/D
         img_batch[3, :, :, :] = test_img[::-1, ::-1, :] # flip L/R and U/D
 
-        pred = model.predict(img_batch)
-        pred_prob = (pred[0, :, :, :] +
-                     pred[1, :, ::-1, :] +
-                     pred[2, ::-1, :, :] +
-                     pred[3, ::-1, ::-1, :]) / 4.
-        pred_mask = pred_prob > threshold
-        rles = helpers.multi_rle_encode(pred_mask)
-        if len(rles) > 0:
-            for rle in rles:
-                pred_rows += [{'ImageId': name + '.jpg', 'EncodedPixels': rle}]
+        has_ships = True
+        if class_model:
+            pred = class_model.predict(img_batch)
+            class_pred_prob = (pred[0, :, :, :] +
+                         pred[1, :, ::-1, :] +
+                         pred[2, ::-1, :, :] +
+                         pred[3, ::-1, ::-1, :]) / 4.
+            if class_pred_prob >= 0.5:
+                has_ships = True
+            else:
+                has_ships = False
+
+        if has_ships:
+            pred = model.predict(img_batch)
+            pred_prob = (pred[0, :, :, :] +
+                         pred[1, :, ::-1, :] +
+                         pred[2, ::-1, :, :] +
+                         pred[3, ::-1, ::-1, :]) / 4.
+            pred_mask = pred_prob > threshold
+            rles = helpers.multi_rle_encode(pred_mask)
+            if len(rles) > 0:
+                for rle in rles:
+                    pred_rows += [{'ImageId': name + '.jpg', 'EncodedPixels': rle}]
+            else:
+                pred_rows += [{'ImageId': name + '.jpg', 'EncodedPixels': None}]
         else:
             pred_rows += [{'ImageId': name + '.jpg', 'EncodedPixels': None}]
 
@@ -74,6 +98,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True, type=str,
                         default=None, help="pathname of model to use for prediction")
+    parser.add_argument("--class-model", dest='class_model', required=False, type=str,
+                        default=None, help="pathname of classification model to use for prediction")
     parser.add_argument("--output-file", dest='output_file', required=False,
                         default='submission.csv', type=str,
                         help="the output file to use for submission")
@@ -85,5 +111,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
 
-    predict(args.input_dir, args.model, args.output_file, args.threshold)
+    predict(args.input_dir, args.model, args.class_model, args.output_file, args.threshold)
 
