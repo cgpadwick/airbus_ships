@@ -64,11 +64,11 @@ def predict(input_dir, model_filename, class_model_filename, output_file, thresh
         has_ships = True
         if class_model:
             pred = class_model.predict(img_batch)
-            class_pred_prob = (pred[0, :, :, :] +
-                         pred[1, :, ::-1, :] +
-                         pred[2, ::-1, :, :] +
-                         pred[3, ::-1, ::-1, :]) / 4.
-            if class_pred_prob >= 0.5:
+            class_pred_prob = (pred[0, 0] +
+                         pred[1, 0] +
+                         pred[2, 0] +
+                         pred[3, 0]) / 4.
+            if class_pred_prob >= 0.75:
                 has_ships = True
             else:
                 has_ships = False
