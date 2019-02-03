@@ -105,6 +105,33 @@ def calc_class(area):
         return 6
 
 
+def balance_lists(ship_list, nanship_list):
+    """
+    Simple algorithm to make one list be the same size as the other list.
+    :param ship_list: list containing ship entries
+    :param nanship_list: llist containing non ship entries
+    :return:
+    """
+
+    len_ship_list = len(ship_list)
+    len_nanship_list = len(nanship_list)
+    logging.info('list sizes before balancing: {}, {}'.format(len_ship_list, len_nanship_list))
+    if len_nanship_list > len_ship_list:
+        diff = len_nanship_list - len_ship_list
+        endidx = len_ship_list
+        startidx = endidx - diff
+        assert(startidx > 0)
+        ship_list = ship_list + ship_list[startidx:endidx]
+    elif len_ship_list > len_nanship_list:
+        diff = len_ship_list - len_nanship_list
+        endidx = len_nanship_list
+        startidx = endidx - diff
+        assert(startidx > 0)
+        nanship_list = nanship_list + nanship_list[startidx:endidx]
+
+    logging.info('list sizes after balancing: {}, {}'.format(len(ship_list), len(nanship_list)))
+
+
 def generate_training_and_validation_data(input_dir, segmentation=True):
 
     training_plk_file = os.path.join(input_dir, 'training_df.pkl')
