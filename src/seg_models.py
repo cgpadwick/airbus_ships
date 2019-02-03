@@ -232,7 +232,7 @@ def resnet_classifier(num_gpus=None):
     :return: Keras model
     """
 
-    inputs = Input(shape=(768, 768, 3))
+    inputs = Input(shape=(256, 256, 3))
 
     conv0 = Conv2D(16, 3, strides=(2, 2), activation=None, padding='same',
                    kernel_initializer='he_normal')(inputs)  # 384x384

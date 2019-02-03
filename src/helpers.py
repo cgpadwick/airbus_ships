@@ -118,6 +118,13 @@ def balance_lists(ship_list, nanship_list):
     len_nanship_list = len(nanship_list)
     logging.info('list sizes before balancing: {}, {}'.format(len_ship_list, len_nanship_list))
     if len_nanship_list > len_ship_list:
+        mismatch = (len_nanship_list - len_ship_list) // len_ship_list 
+        logging.info('{}'.format(mismatch))
+        if mismatch > 1:
+            copy_list = ship_list
+            for x in range(mismatch):
+                ship_list = ship_list + copy_list
+            len_ship_list = len(ship_list)
         diff = len_nanship_list - len_ship_list
         endidx = len_ship_list
         startidx = endidx - diff
@@ -131,6 +138,7 @@ def balance_lists(ship_list, nanship_list):
         nanship_list = nanship_list + nanship_list[startidx:endidx]
 
     logging.info('list sizes after balancing: {}, {}'.format(len(ship_list), len(nanship_list)))
+    return ship_list, nanship_list
 
 
 def generate_training_and_validation_data(input_dir, segmentation=True):

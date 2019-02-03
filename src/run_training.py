@@ -69,7 +69,9 @@ def run_training(model_choice=None,
     val = res['val']
     train_df = res['train_df']
 
-    helpers.balance_lists(train_isship_list, train_nanship_list)
+    logging.info('len(train_isship_list): {}'.format(len(train_isship_list)))
+    train_isship_list, train_nanship_list = \
+        helpers.balance_lists(train_isship_list, train_nanship_list)
 
     logging.info('train.shape: {}'.format(train.shape))
     logging.info('len(train_isship_list): {}'.format(len(train_isship_list)))
