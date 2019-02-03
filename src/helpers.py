@@ -16,6 +16,7 @@ import random
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
 from skimage.data import imread
+from scipy.misc import imresize
 from skimage.morphology import label
 import shutil
 import tensorflow as tf
@@ -284,8 +285,8 @@ def data_generator(isship_list, nanship_list, batch_size, cap_num, train_img_dir
         batch_mask = []
         for name in batch_img_names_is:
             tmp_img = imread(os.path.join(train_img_dir, name))
-            batch_img.append(tmp_img)
             if segmentation:
+                batch_img.append(tmp_img)
                 mask_list = train_df['EncodedPixels'][train_df['ImageId'] == name].tolist()
                 one_mask = np.zeros((768, 768, 1))
                 for item in mask_list:
@@ -294,11 +295,13 @@ def data_generator(isship_list, nanship_list, batch_size, cap_num, train_img_dir
                     one_mask[:, :, 0] += tmp_mask
                 batch_mask.append(one_mask)
             else:
+                tmp_img = imresize(tmp_img, (256, 256))
+                batch_img.append(tmp_img)
                 batch_mask.append(1.)
         for name in batch_img_names_nan:
             tmp_img = imread(os.path.join(train_img_dir, name))
-            batch_img.append(tmp_img)
             if segmentation:
+                batch_img.append(tmp_img)
                 mask_list = train_df['EncodedPixels'][train_df['ImageId'] == name].tolist()
                 one_mask = np.zeros((768, 768, 1))
                 for item in mask_list:
@@ -307,6 +310,8 @@ def data_generator(isship_list, nanship_list, batch_size, cap_num, train_img_dir
                     one_mask[:, :, 0] += tmp_mask
                 batch_mask.append(one_mask)
             else:
+                tmp_img = imresize(tmp_img, (256, 256))
+                batch_img.append(tmp_img)
                 batch_mask.append(0.)
         img = np.stack(batch_img, axis=0)
         mask = np.stack(batch_mask, axis=0)
@@ -324,12 +329,18 @@ def create_aug_gen(in_gen, segmentation=True):
     :return: tuple of augmented images and labels
     """
 
-    sometimes = lambda aug: iaa.Sometimes(0.5, aug)
-
     seq = iaa.Sequential(iaa.OneOf([iaa.Fliplr(0.5),
-                          iaa.Flipud(0.5),
-                          iaa.Affine(rotate=(-10, 10)),
-                          iaa.Affine(translate_px={"x": (-20, 20), "y": (-20, 20)})]),
+                                    iaa.Flipud(0.5),
+                                    iaa.Affine(rotate=(-10, 10)),
+                                    iaa.Affine(translate_px={"x": (-20, 20), "y": (-20, 20)})]),
+                         random_order=True)
+
+    if not segmentation:
+        seq = iaa.Sequential(iaa.OneOf([iaa.Fliplr(0.5),
+                                        iaa.Flipud(0.5),
+                                        iaa.ContrastNormalization((0.75, 1.25)),
+                                        iaa.Affine(rotate=(-10, 10)),
+                                        iaa.Affine(translate_px={"x": (-20, 20), "y": (-20, 20)})]),
                          random_order=True)
 
     for in_x, in_y in in_gen:
@@ -577,13 +588,15 @@ def output_val_predictions_for_classification(val_dir, val_list, model, train_df
     for i in tqdm(range(len(val_list))):
         img_name = os.path.join(train_img_dir, val_list[i])
         img = imread(img_name)
+        img = imresize(img, (256, 256))
+
         gt_label = train_df['area'][train_df['ImageId'] == val_list[i]].tolist()
         if np.any(gt_label):
             gt_labels.append(1)
         else:
             gt_labels.append(0)
         img = img / 255.
-        img = img.reshape(1, 768, 768, 3)
+        img = img.reshape(1, 256, 256, 3)
         pred_mask = model.predict(img)
         pred_labels.append(pred_mask[0, 0])
 

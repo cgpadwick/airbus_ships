@@ -6,6 +6,7 @@ import numpy as np
 import os
 import pandas as pd
 from skimage.data import imread
+from scipy.misc import imresize
 from tqdm import tqdm
 
 
@@ -52,10 +53,12 @@ def predict(input_dir, model_filename, class_model_filename, output_file, thresh
     test_img_names = [x.split('.')[0] for x in os.listdir(test_img_dir)]
 
     img_batch = np.zeros((4, 768, 768, 3))
+    class_img_batch = np.zeros((4, 256, 256, 3))
 
     pred_rows = []
     for name in tqdm(test_img_names):
-        test_img = imread(os.path.join(test_img_dir, name + '.jpg')) / 255.0
+        img = imread(os.path.join(test_img_dir, name + '.jpg'))
+        test_img = img / 255.0
         img_batch[0, :, :, :] = test_img                # original
         img_batch[1, :, :, :] = test_img[:, ::-1, :]    # flip L/R
         img_batch[2, :, :, :] = test_img[::-1, :, :]    # flip U/D
@@ -63,11 +66,17 @@ def predict(input_dir, model_filename, class_model_filename, output_file, thresh
 
         has_ships = True
         if class_model:
-            pred = class_model.predict(img_batch)
+            test_img = imresize(img, (256, 256)) / 255.0
+            class_img_batch[0, :, :, :] = test_img  # original
+            class_img_batch[1, :, :, :] = test_img[:, ::-1, :]  # flip L/R
+            class_img_batch[2, :, :, :] = test_img[::-1, :, :]  # flip U/D
+            class_img_batch[3, :, :, :] = test_img[::-1, ::-1, :]  # flip L/R and U/D
+
+            pred = class_model.predict(class_img_batch)
             class_pred_prob = (pred[0, 0] +
-                         pred[1, 0] +
-                         pred[2, 0] +
-                         pred[3, 0]) / 4.
+                               pred[1, 0] +
+                               pred[2, 0] +
+                               pred[3, 0]) / 4.
             if class_pred_prob >= 0.75:
                 has_ships = True
             else:
