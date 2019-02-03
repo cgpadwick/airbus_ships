@@ -328,10 +328,8 @@ def create_aug_gen(in_gen, segmentation=True):
 
     seq = iaa.Sequential(iaa.OneOf([iaa.Fliplr(0.5),
                           iaa.Flipud(0.5),
-                          iaa.GaussianBlur((0, 3.0)),
                           iaa.Affine(rotate=(-10, 10)),
-                          iaa.Affine(translate_px={"x": (-20, 20), "y": (-20, 20)}),
-                          iaa.Sharpen(alpha=(0.0, 1.0), lightness=1.0)]),
+                          iaa.Affine(translate_px={"x": (-20, 20), "y": (-20, 20)})]),
                          random_order=True)
 
     for in_x, in_y in in_gen:
